@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect, useCallback } from 'react';
 import { User, Student, Subject, CustomField } from '../types';
 import { api } from '../services/api';
@@ -75,12 +76,16 @@ const SubjectSelector: React.FC<{
     limit: number;
     disabled: boolean;
     customMessage?: string;
-}> = ({ title, subjects, selected, onChange, limit, disabled, customMessage }) => {
+    action?: React.ReactNode;
+}> = ({ title, subjects, selected, onChange, limit, disabled, customMessage, action }) => {
     const isSelectionDisabled = selected.length >= limit || disabled;
 
     return (
         <Card title={title}>
-            <p className="text-sm text-gray-600 mb-4">{customMessage || `Vui lòng chọn ${limit} môn. Bạn đã chọn ${selected.length}/${limit}.`}</p>
+            <div className="flex flex-wrap justify-between items-center gap-2 mb-4">
+                <p className="text-sm text-gray-600">{customMessage || `Vui lòng chọn ${limit} môn. Bạn đã chọn ${selected.length}/${limit}.`}</p>
+                {action}
+            </div>
             <div className="grid grid-cols-2 sm:grid-cols-3 gap-4">
                 {subjects.map(subject => {
                     const isSelected = selected.includes(subject.id);
@@ -191,12 +196,6 @@ const StudentDashboard: React.FC<StudentDashboardProps> = ({ user }) => {
         setSaveMessage('Hệ thống đã khoá, không thể lưu.');
         return;
     }
-    
-    if (settings.showReviewSubjects && selectedReview.length !== 2) {
-        setSaveMessage('Vui lòng chọn đủ 2 môn ôn tập.');
-        setTimeout(() => setSaveMessage(''), 3000);
-        return;
-    }
 
     if (settings.showExamSubjects && selectedExam.length !== 2) {
         setSaveMessage('Vui lòng chọn đủ 2 môn thi tự chọn.');
@@ -246,13 +245,12 @@ const StudentDashboard: React.FC<StudentDashboardProps> = ({ user }) => {
   const hasRegistered = registeredReview.length > 0 || registeredExam.length > 0;
   
   const isSaveDisabled = isSaving || 
-    (settings.showReviewSubjects && selectedReview.length !== 2) ||
     (settings.showExamSubjects && selectedExam.length !== 2);
   
   return (
     <div className="p-4 sm:p-6 lg:p-8 max-w-4xl mx-auto w-full">
         <div className="mb-6">
-            <h1 className="text-3xl font-bold text-gray-800">Phiếu Đăng ký Môn học</h1>
+            <h1 className="text-3xl font-bold text-gray-800">Phiếu đăng kí môn học ôn tập và thi TN THPT</h1>
             <p className="text-gray-600 mt-1">Xin chào {studentData.hoten}, vui lòng hoàn thành phiếu đăng ký dưới đây.</p>
         </div>
         
@@ -267,7 +265,7 @@ const StudentDashboard: React.FC<StudentDashboardProps> = ({ user }) => {
                     {settings.showReviewSubjects && (
                         <div>
                             <p className="font-semibold text-lg">Môn ôn tập đã chọn:</p>
-                            <p className="pl-4 text-gray-700">{registeredReview.join(', ') || <i className="text-gray-500">Chưa chọn</i>}</p>
+                            <p className="pl-4 text-gray-700">{registeredReview.join(', ') || <i className="text-gray-500">Không đăng ký</i>}</p>
                         </div>
                     )}
                     {settings.showExamSubjects && (
@@ -288,13 +286,25 @@ const StudentDashboard: React.FC<StudentDashboardProps> = ({ user }) => {
         {!isLocked ? (
             <div className="space-y-8">
                 {settings.showReviewSubjects && (
-                    <SubjectSelector 
+                    <SubjectSelector
                         title="Đăng ký môn ôn tập"
                         subjects={reviewSubjects}
                         selected={selectedReview}
-                        onChange={handleSelectionChange(setSelectedReview, 2)}
-                        limit={2}
+                        onChange={handleSelectionChange(setSelectedReview, 4)}
+                        limit={4}
                         disabled={isLocked}
+                        customMessage={`Vui lòng chọn tối đa 4 môn. Bạn đã chọn ${selectedReview.length}/4.`}
+                        action={
+                            <Button
+                                type="button"
+                                variant="secondary"
+                                onClick={() => setSelectedReview([])}
+                                disabled={isLocked || selectedReview.length === 0}
+                                className="px-3 py-1 text-sm"
+                            >
+                                Bỏ chọn tất cả
+                            </Button>
+                        }
                     />
                 )}
 

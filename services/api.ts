@@ -1,8 +1,11 @@
 // Fix: Import necessary types to resolve 'Cannot find name' errors.
 import { Role, Student, Subject, User, CustomField } from '../types';
 
-// --- MOCK DATABASE ---
-const mockDB = {
+const DB_KEY = 'registration_system_db';
+
+// --- DATABASE INITIALIZATION ---
+// This structure holds the initial state of the database if nothing is found in localStorage.
+const initialDB = {
   isRegistrationLocked: false,
   registrationDeadline: new Date(Date.now() + 10 * 24 * 60 * 60 * 1000).toISOString(), // Default: 10 days from now
   registrationSettings: {
@@ -24,7 +27,7 @@ const mockDB = {
   ] as Student[],
   userPasswords: new Map<number, string>([
     [1, '_hashed_adminpassword'],
-    [2, '_hashed_HS2025001'], // Default password is student code
+    [2, '_hashed_HS2025001'],
     [3, '_hashed_newpassword123'],
     [4, '_hashed_12345678'],
     [5, '_hashed_HS2025004'],
@@ -50,6 +53,38 @@ const mockDB = {
   nextUserId: 11,
 };
 
+// --- DB HELPER FUNCTIONS ---
+let mockDB: typeof initialDB;
+
+const _saveDB = () => {
+  // JSON cannot serialize Maps directly, so we convert it to an array of [key, value] pairs.
+  const dbToSave = {
+    ...mockDB,
+    userPasswords: Array.from(mockDB.userPasswords.entries()),
+  };
+  localStorage.setItem(DB_KEY, JSON.stringify(dbToSave));
+};
+
+const _loadDB = () => {
+  const savedDB = localStorage.getItem(DB_KEY);
+  if (savedDB) {
+    const parsedDB = JSON.parse(savedDB);
+    // Restore the Map from the array.
+    mockDB = {
+      ...parsedDB,
+      userPasswords: new Map(parsedDB.userPasswords),
+    };
+  } else {
+    // If no saved DB, use the initial one and save it.
+    mockDB = JSON.parse(JSON.stringify(initialDB)); // Deep copy to avoid mutation issues
+    mockDB.userPasswords = new Map(initialDB.userPasswords);
+    _saveDB();
+  }
+};
+
+// Load the database when the module is first imported.
+_loadDB();
+
 const delay = (ms: number) => new Promise(res => setTimeout(res, ms));
 
 // --- API MOCK OBJECT ---
@@ -71,6 +106,7 @@ export const api = {
     if (userIndex !== -1) {
       mockDB.users[userIndex].mustChangePassword = false;
       mockDB.userPasswords.set(userId, `_hashed_${newPassword}`);
+      _saveDB(); // Save changes
       return;
     }
     throw new Error('Không tìm thấy người dùng.');
@@ -84,6 +120,7 @@ export const api = {
     if (userIndex !== -1 && currentPasswordHash === `_hashed_${oldPassword}`) {
       mockDB.users[userIndex].mustChangePassword = false;
       mockDB.userPasswords.set(userId, `_hashed_${newPassword}`);
+      _saveDB(); // Save changes
       return;
     }
     throw new Error('Mật khẩu hiện tại không đúng.');
@@ -108,6 +145,7 @@ export const api = {
     if (userIndex !== -1) {
       mockDB.users[userIndex].mustChangePassword = false;
       mockDB.userPasswords.set(userId, `_hashed_${newPassword}`);
+      _saveDB(); // Save changes
       return;
     }
     throw new Error('Đã xảy ra lỗi không mong muốn.');
@@ -134,6 +172,7 @@ export const api = {
       mockDB.users[userIndex].examSubjects = data.examSubjects;
       mockDB.users[userIndex].customData = data.customData;
       mockDB.users[userIndex].registrationDate = new Date().toISOString();
+      _saveDB(); // Save changes
       return;
     }
     throw new Error('Không tìm thấy người dùng.');
@@ -158,6 +197,7 @@ export const api = {
     };
     mockDB.users.push(newStudent);
     mockDB.userPasswords.set(newStudent.id, `_hashed_${studentData.cccd || studentData.ma_hocsinh}`);
+    _saveDB(); // Save changes
     return newStudent;
   },
 
@@ -179,6 +219,7 @@ export const api = {
         mockDB.users.push(newStudent);
         mockDB.userPasswords.set(newStudent.id, `_hashed_${s.cccd || s.ma_hocsinh}`);
     });
+    _saveDB(); // Save changes
   },
 
   updateStudent: async (studentId: number, updates: Partial<Student>): Promise<Student> => {
@@ -187,51 +228,38 @@ export const api = {
       if (studentIndex === -1) throw new Error("Student not found");
       
       mockDB.users[studentIndex] = { ...mockDB.users[studentIndex], ...updates };
+      _saveDB(); // Save changes
       return mockDB.users[studentIndex];
   },
 
   deleteStudentsBatch: async (studentIds: number[]): Promise<void> => {
     await delay(500);
     const idsToDelete = new Set(studentIds);
-    
-    // Create new, filtered list of users
-    const updatedUsers = mockDB.users.filter(user => !idsToDelete.has(user.id));
-    
-    // Create a new password map, excluding the deleted users
-    const updatedPasswords = new Map(mockDB.userPasswords);
+    mockDB.users = mockDB.users.filter(user => !idsToDelete.has(user.id));
     studentIds.forEach(id => {
-      updatedPasswords.delete(id);
+      mockDB.userPasswords.delete(id);
     });
-
-    // Atomically replace the data
-    mockDB.users = updatedUsers;
-    mockDB.userPasswords = updatedPasswords;
+    _saveDB(); // Save changes
   },
 
   deleteAllStudents: async (): Promise<void> => {
     await delay(500);
-    // Find all admin users to preserve them
     const adminUsers = mockDB.users.filter(u => u.role === Role.Admin);
-    const adminUserIds = new Set(adminUsers.map(u => u.id));
-    
-    // Create a new password map containing only the passwords for admin users
     const newPasswordMap = new Map<number, string>();
-    mockDB.userPasswords.forEach((password, id) => {
-        if (adminUserIds.has(id)) {
-            newPasswordMap.set(id, password);
-        }
+    adminUsers.forEach(admin => {
+        const pass = mockDB.userPasswords.get(admin.id);
+        if(pass) newPasswordMap.set(admin.id, pass);
     });
     
-    // Atomically replace the user list and password map
     mockDB.users = adminUsers;
     mockDB.userPasswords = newPasswordMap;
+    _saveDB(); // Save changes
   },
 
   getStudentPassword: async (studentId: number): Promise<string> => {
     await delay(200);
     const passwordHash = mockDB.userPasswords.get(studentId);
     if (!passwordHash) throw new Error("Password not found for student.");
-    // Reverse the mock hash
     if (passwordHash.startsWith('_hashed_')) {
       return passwordHash.substring(8);
     }
@@ -244,10 +272,11 @@ export const api = {
       if (studentIndex === -1) throw new Error("Student not found");
 
       const student = mockDB.users[studentIndex];
-      student.mustChangePassword = !newPassword; // must change if reset to default, not if admin sets it
+      student.mustChangePassword = !newPassword; 
       
       const passwordToSet = newPassword || student.ma_hocsinh;
       mockDB.userPasswords.set(student.id, `_hashed_${passwordToSet}`);
+      _saveDB(); // Save changes
   },
 
   getRegistrationStatus: async (): Promise<boolean> => {
@@ -259,6 +288,7 @@ export const api = {
   setRegistrationStatus: async (locked: boolean): Promise<boolean> => {
     await delay(400);
     mockDB.isRegistrationLocked = locked;
+    _saveDB(); // Save changes
     return mockDB.isRegistrationLocked;
   },
   
@@ -270,6 +300,7 @@ export const api = {
   setRegistrationDeadline: async (deadline: string): Promise<string> => {
     await delay(400);
     mockDB.registrationDeadline = deadline;
+    _saveDB(); // Save changes
     return mockDB.registrationDeadline;
   },
 
@@ -281,6 +312,7 @@ export const api = {
   updateRegistrationSettings: async (settings: { showReviewSubjects: boolean, showExamSubjects: boolean, showCustomFields: boolean }): Promise<void> => {
     await delay(400);
     mockDB.registrationSettings = settings;
+    _saveDB(); // Save changes
   },
 
   getSubjects: async(): Promise<{ review: Subject[], exam: Subject[] }> => {
@@ -295,6 +327,7 @@ export const api = {
     await delay(500);
     mockDB.reviewSubjects = subjects.review;
     mockDB.examSubjects = subjects.exam;
+    _saveDB(); // Save changes
   },
 
   getCustomFormFields: async (): Promise<CustomField[]> => {
@@ -305,5 +338,6 @@ export const api = {
   updateCustomFormFields: async (fields: CustomField[]): Promise<void> => {
     await delay(400);
     mockDB.customFormFields = fields;
+    _saveDB(); // Save changes
   },
 };

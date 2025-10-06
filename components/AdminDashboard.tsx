@@ -303,7 +303,8 @@ const AnalyticsTab: React.FC<{ students: Student[], subjects: { review: Subject[
         }, {} as Record<string, number>);
         // FIX: Reordered map and sort and used tuple destructuring to resolve type errors in the sort comparison.
         return Object.entries(stats)
-            .sort(([, aValue], [, bValue]) => bValue - aValue)
+            // Fix: Explicitly cast values to numbers before subtraction to avoid type errors.
+            .sort(([, aValue], [, bValue]) => Number(bValue) - Number(aValue))
             .map(([label, value]) => ({ label, value }));
     }, [students, reviewSubjectsMap]);
 
@@ -318,7 +319,8 @@ const AnalyticsTab: React.FC<{ students: Student[], subjects: { review: Subject[
         }, {} as Record<string, number>);
         // FIX: Reordered map and sort and used tuple destructuring to resolve type errors in the sort comparison.
         return Object.entries(stats)
-            .sort(([, aValue], [, bValue]) => bValue - aValue)
+            // Fix: Explicitly cast values to numbers before subtraction to avoid type errors.
+            .sort(([, aValue], [, bValue]) => Number(bValue) - Number(aValue))
             .map(([label, value]) => ({ label, value }));
     }, [students, examSubjectsMap]);
 
