@@ -1,5 +1,6 @@
 // Fix: Import necessary types to resolve 'Cannot find name' errors.
 import { Role, Student, Subject, User, CustomField } from '../types';
+import { firebaseService, initializeFirebase } from './firebaseService';
 
 const DB_KEY = 'registration_system_db';
 
@@ -44,7 +45,7 @@ const initialDB = {
   ] as Subject[],
   examSubjects: [
     { id: 4, name: 'Vật lý' }, { id: 5, name: 'Hóa học' }, { id: 6, name: 'Sinh học' },
-    { id: 7, name: 'Lịch sử' }, { id: 8, name: 'Địa lý' }, { id: 9, name: 'GDCD' },
+    { id: 7, 'name': 'Lịch sử' }, { id: 8, name: 'Địa lý' }, { id: 9, name: 'GDCD' },
   ] as Subject[],
   customFormFields: [
     { id: 'phone', label: 'SĐT Phụ huynh', type: 'text', required: true },
@@ -53,7 +54,28 @@ const initialDB = {
   nextUserId: 11,
 };
 
-// --- DB HELPER FUNCTIONS ---
+// --- DUAL-MODE API SETUP ---
+let isFirebaseEnabled = false;
+
+try {
+  const configString = localStorage.getItem('firebaseConfig');
+  if (configString) {
+    const config = JSON.parse(configString);
+    if (config.apiKey && config.projectId) {
+      initializeFirebase(config);
+      isFirebaseEnabled = true;
+      console.log("%cFirebase Mode: ENABLED", "color: green; font-weight: bold;");
+    }
+  }
+} catch (e) {
+  console.error("Could not initialize Firebase", e);
+}
+
+if (!isFirebaseEnabled) {
+  console.log("%cFirebase Mode: DISABLED (fallback to localStorage)", "color: orange; font-weight: bold;");
+}
+
+// --- LOCAL DB (MOCK) HELPER FUNCTIONS ---
 let mockDB: typeof initialDB;
 
 const _saveDB = () => {
@@ -82,14 +104,23 @@ const _loadDB = () => {
   }
 };
 
-// Load the database when the module is first imported.
+// Load the local database when the module is first imported.
 _loadDB();
 
 const delay = (ms: number) => new Promise(res => setTimeout(res, ms));
 
-// --- API MOCK OBJECT ---
+// --- UNIFIED API OBJECT ---
 export const api = {
+  migrateToFirebase: async (progressCallback: (message: string) => void) => {
+    if (!isFirebaseEnabled) throw new Error("Firebase chưa được cấu hình.");
+    await firebaseService.migrateData(mockDB, progressCallback);
+  },
+
   login: async (ma_hocsinh: string, password: string): Promise<User> => {
+    if (isFirebaseEnabled) {
+        return firebaseService.login(ma_hocsinh, password);
+    }
+    // Fallback to local
     await delay(500);
     const user = mockDB.users.find(u => u.ma_hocsinh === ma_hocsinh);
     const expectedPasswordHash = user ? mockDB.userPasswords.get(user.id) : undefined;
@@ -101,18 +132,26 @@ export const api = {
   },
 
   changePassword: async (userId: number, newPassword: string): Promise<void> => {
+    if (isFirebaseEnabled) {
+        return firebaseService.changePassword(userId, newPassword);
+    }
+     // Fallback to local
     await delay(500);
     const userIndex = mockDB.users.findIndex(u => u.id === userId);
     if (userIndex !== -1) {
       mockDB.users[userIndex].mustChangePassword = false;
       mockDB.userPasswords.set(userId, `_hashed_${newPassword}`);
-      _saveDB(); // Save changes
+      _saveDB();
       return;
     }
     throw new Error('Không tìm thấy người dùng.');
   },
 
   changeOwnPassword: async (userId: number, oldPassword: string, newPassword: string): Promise<void> => {
+    if (isFirebaseEnabled) {
+        return firebaseService.changeOwnPassword(userId, oldPassword, newPassword);
+    }
+     // Fallback to local
     await delay(500);
     const userIndex = mockDB.users.findIndex(u => u.id === userId);
     const currentPasswordHash = mockDB.userPasswords.get(userId);
@@ -120,13 +159,17 @@ export const api = {
     if (userIndex !== -1 && currentPasswordHash === `_hashed_${oldPassword}`) {
       mockDB.users[userIndex].mustChangePassword = false;
       mockDB.userPasswords.set(userId, `_hashed_${newPassword}`);
-      _saveDB(); // Save changes
+      _saveDB();
       return;
     }
     throw new Error('Mật khẩu hiện tại không đúng.');
   },
 
   verifyStudentForPasswordReset: async (ma_hocsinh: string, ngaysinh: string): Promise<number> => {
+     if (isFirebaseEnabled) {
+        return firebaseService.verifyStudentForPasswordReset(ma_hocsinh, ngaysinh);
+    }
+    // Fallback to local
     await delay(500);
     const student = mockDB.users.find(u =>
       u.role === Role.Student &&
@@ -140,18 +183,26 @@ export const api = {
   },
 
   resetPasswordAfterVerification: async (userId: number, newPassword: string): Promise<void> => {
+     if (isFirebaseEnabled) {
+        return firebaseService.resetPasswordAfterVerification(userId, newPassword);
+    }
+    // Fallback to local
     await delay(500);
     const userIndex = mockDB.users.findIndex(u => u.id === userId);
     if (userIndex !== -1) {
       mockDB.users[userIndex].mustChangePassword = false;
       mockDB.userPasswords.set(userId, `_hashed_${newPassword}`);
-      _saveDB(); // Save changes
+      _saveDB();
       return;
     }
     throw new Error('Đã xảy ra lỗi không mong muốn.');
   },
   
   getStudentById: async (userId: number): Promise<Student> => {
+     if (isFirebaseEnabled) {
+        return firebaseService.getStudentById(userId);
+    }
+    // Fallback to local
     await delay(300);
     const student = mockDB.users.find(u => u.id === userId && u.role === Role.Student);
     if (student) {
@@ -161,6 +212,10 @@ export const api = {
   },
 
   updateStudentRegistration: async (userId: number, data: { reviewSubjects: number[], examSubjects: number[], customData: { [key: string]: any } }): Promise<void> => {
+    if (isFirebaseEnabled) {
+        return firebaseService.updateStudentRegistration(userId, data);
+    }
+    // Fallback to local
     await delay(600);
     const isPastDeadline = new Date() > new Date(mockDB.registrationDeadline);
     if (mockDB.isRegistrationLocked || isPastDeadline) {
@@ -172,7 +227,7 @@ export const api = {
       mockDB.users[userIndex].examSubjects = data.examSubjects;
       mockDB.users[userIndex].customData = data.customData;
       mockDB.users[userIndex].registrationDate = new Date().toISOString();
-      _saveDB(); // Save changes
+      _saveDB();
       return;
     }
     throw new Error('Không tìm thấy người dùng.');
@@ -180,11 +235,19 @@ export const api = {
 
   // --- Admin specific functions ---
   getStudents: async (): Promise<Student[]> => {
+    if (isFirebaseEnabled) {
+        return firebaseService.getStudents();
+    }
+    // Fallback to local
     await delay(300);
     return JSON.parse(JSON.stringify(mockDB.users.filter(u => u.role === Role.Student) as Student[]));
   },
 
   addStudent: async (studentData: Omit<Student, 'id' | 'role'>): Promise<Student> => {
+    if (isFirebaseEnabled) {
+        return firebaseService.addStudent(studentData);
+    }
+    // Fallback to local
     await delay(400);
     const newStudent: Student = {
         ...studentData,
@@ -197,11 +260,15 @@ export const api = {
     };
     mockDB.users.push(newStudent);
     mockDB.userPasswords.set(newStudent.id, `_hashed_${studentData.cccd || studentData.ma_hocsinh}`);
-    _saveDB(); // Save changes
+    _saveDB();
     return newStudent;
   },
 
   addStudentsBatch: async (studentsData: any[]): Promise<void> => {
+     if (isFirebaseEnabled) {
+        return firebaseService.addStudentsBatch(studentsData);
+    }
+    // Fallback to local
     await delay(1000);
     studentsData.forEach(s => {
         const newStudent: Student = {
@@ -219,30 +286,42 @@ export const api = {
         mockDB.users.push(newStudent);
         mockDB.userPasswords.set(newStudent.id, `_hashed_${s.cccd || s.ma_hocsinh}`);
     });
-    _saveDB(); // Save changes
+    _saveDB();
   },
 
   updateStudent: async (studentId: number, updates: Partial<Student>): Promise<Student> => {
+    if (isFirebaseEnabled) {
+        return firebaseService.updateStudent(studentId, updates);
+    }
+    // Fallback to local
       await delay(400);
       const studentIndex = mockDB.users.findIndex(s => s.id === studentId);
       if (studentIndex === -1) throw new Error("Student not found");
       
       mockDB.users[studentIndex] = { ...mockDB.users[studentIndex], ...updates };
-      _saveDB(); // Save changes
+      _saveDB();
       return mockDB.users[studentIndex];
   },
 
   deleteStudentsBatch: async (studentIds: number[]): Promise<void> => {
+    if (isFirebaseEnabled) {
+        return firebaseService.deleteStudentsBatch(studentIds);
+    }
+    // Fallback to local
     await delay(500);
     const idsToDelete = new Set(studentIds);
     mockDB.users = mockDB.users.filter(user => !idsToDelete.has(user.id));
     studentIds.forEach(id => {
       mockDB.userPasswords.delete(id);
     });
-    _saveDB(); // Save changes
+    _saveDB();
   },
 
   deleteAllStudents: async (): Promise<void> => {
+    if (isFirebaseEnabled) {
+        return firebaseService.deleteAllStudents();
+    }
+    // Fallback to local
     await delay(500);
     const adminUsers = mockDB.users.filter(u => u.role === Role.Admin);
     const newPasswordMap = new Map<number, string>();
@@ -253,10 +332,14 @@ export const api = {
     
     mockDB.users = adminUsers;
     mockDB.userPasswords = newPasswordMap;
-    _saveDB(); // Save changes
+    _saveDB();
   },
 
   getStudentPassword: async (studentId: number): Promise<string> => {
+    if (isFirebaseEnabled) {
+        return firebaseService.getStudentPassword(studentId);
+    }
+    // Fallback to local
     await delay(200);
     const passwordHash = mockDB.userPasswords.get(studentId);
     if (!passwordHash) throw new Error("Password not found for student.");
@@ -267,6 +350,10 @@ export const api = {
   },
 
   resetStudentPassword: async (studentId: number, newPassword?: string): Promise<void> => {
+    if (isFirebaseEnabled) {
+        return firebaseService.resetStudentPassword(studentId, newPassword);
+    }
+    // Fallback to local
       await delay(300);
       const studentIndex = mockDB.users.findIndex(s => s.id === studentId);
       if (studentIndex === -1) throw new Error("Student not found");
@@ -276,46 +363,74 @@ export const api = {
       
       const passwordToSet = newPassword || student.ma_hocsinh;
       mockDB.userPasswords.set(student.id, `_hashed_${passwordToSet}`);
-      _saveDB(); // Save changes
+      _saveDB();
   },
 
   getRegistrationStatus: async (): Promise<boolean> => {
+    if (isFirebaseEnabled) {
+        return firebaseService.getRegistrationStatus();
+    }
+    // Fallback to local
     await delay(100);
     const isPastDeadline = new Date() > new Date(mockDB.registrationDeadline);
     return mockDB.isRegistrationLocked || isPastDeadline;
   },
 
   setRegistrationStatus: async (locked: boolean): Promise<boolean> => {
+    if (isFirebaseEnabled) {
+        return firebaseService.setRegistrationStatus(locked);
+    }
+    // Fallback to local
     await delay(400);
     mockDB.isRegistrationLocked = locked;
-    _saveDB(); // Save changes
+    _saveDB();
     return mockDB.isRegistrationLocked;
   },
   
   getRegistrationDeadline: async (): Promise<string> => {
+    if (isFirebaseEnabled) {
+        return firebaseService.getRegistrationDeadline();
+    }
+    // Fallback to local
     await delay(50);
     return mockDB.registrationDeadline;
   },
   
   setRegistrationDeadline: async (deadline: string): Promise<string> => {
+    if (isFirebaseEnabled) {
+        return firebaseService.setRegistrationDeadline(deadline);
+    }
+    // Fallback to local
     await delay(400);
     mockDB.registrationDeadline = deadline;
-    _saveDB(); // Save changes
+    _saveDB();
     return mockDB.registrationDeadline;
   },
 
   getRegistrationSettings: async (): Promise<{ showReviewSubjects: boolean, showExamSubjects: boolean, showCustomFields: boolean }> => {
+    if (isFirebaseEnabled) {
+        return firebaseService.getRegistrationSettings();
+    }
+    // Fallback to local
     await delay(50);
     return JSON.parse(JSON.stringify(mockDB.registrationSettings));
   },
   
   updateRegistrationSettings: async (settings: { showReviewSubjects: boolean, showExamSubjects: boolean, showCustomFields: boolean }): Promise<void> => {
+    if (isFirebaseEnabled) {
+        return firebaseService.updateRegistrationSettings(settings);
+    }
+    // Fallback to local
     await delay(400);
     mockDB.registrationSettings = settings;
-    _saveDB(); // Save changes
+    _saveDB();
   },
 
   getSubjects: async(): Promise<{ review: Subject[], exam: Subject[] }> => {
+    if (isFirebaseEnabled) {
+        return firebaseService.getSubjects();
+    }
+    // Fallback to local
     await delay(150);
     return JSON.parse(JSON.stringify({
         review: mockDB.reviewSubjects,
@@ -324,20 +439,32 @@ export const api = {
   },
 
   updateSubjects: async(subjects: { review: Subject[], exam: Subject[] }): Promise<void> => {
+    if (isFirebaseEnabled) {
+        return firebaseService.updateSubjects(subjects);
+    }
+    // Fallback to local
     await delay(500);
     mockDB.reviewSubjects = subjects.review;
     mockDB.examSubjects = subjects.exam;
-    _saveDB(); // Save changes
+    _saveDB();
   },
 
   getCustomFormFields: async (): Promise<CustomField[]> => {
+    if (isFirebaseEnabled) {
+        return firebaseService.getCustomFormFields();
+    }
+    // Fallback to local
     await delay(100);
     return JSON.parse(JSON.stringify(mockDB.customFormFields));
   },
   
   updateCustomFormFields: async (fields: CustomField[]): Promise<void> => {
+     if (isFirebaseEnabled) {
+        return firebaseService.updateCustomFormFields(fields);
+    }
+    // Fallback to local
     await delay(400);
     mockDB.customFormFields = fields;
-    _saveDB(); // Save changes
+    _saveDB();
   },
 };

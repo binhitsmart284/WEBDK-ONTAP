@@ -13,7 +13,7 @@ import { Input } from './ui/Input';
 
 declare var XLSX: any;
 
-type Tab = 'dashboard' | 'students' | 'customData' | 'settings';
+type Tab = 'dashboard' | 'students' | 'customData' | 'settings' | 'firebase';
 
 // Helper component for stat cards
 const StatCard: React.FC<{ title: string; value: string | number; icon: React.ReactNode }> = ({ title, value, icon }) => (
@@ -241,6 +241,7 @@ const AdminDashboard: React.FC = () => {
             case 'students': return <StudentManagementTab students={students} subjects={subjects} onAdd={openAddStudentModal} onEdit={openEditStudentModal} onViewPassword={openViewPasswordModal} onResetPassword={openResetPasswordModal} onImportClick={() => fileInputRef.current?.click()} refreshData={fetchData} />;
             case 'customData': return <CustomDataTab students={students} />;
             case 'settings': return <SettingsTab isLocked={isLocked} onToggleLock={handleToggleLock} actionLoading={actionLoading} subjects={subjects} onExport={handleExportToExcel} refreshData={fetchData}/>;
+            case 'firebase': return <FirebaseConfigTab />;
             default: return null;
         }
     };
@@ -251,6 +252,7 @@ const AdminDashboard: React.FC = () => {
             case 'students': return 'Quản lý Học sinh';
             case 'customData': return 'Dữ liệu Bổ sung';
             case 'settings': return 'Cài đặt';
+            case 'firebase': return 'Cấu hình Firebase';
             default: return '';
         }
     }
@@ -261,7 +263,7 @@ const AdminDashboard: React.FC = () => {
             
             <div className="mb-6 border-b border-gray-200">
                 <nav className="-mb-px flex space-x-6 overflow-x-auto" aria-label="Tabs">
-                    {(['dashboard', 'students', 'customData', 'settings'] as Tab[]).map(tab => (
+                    {(['dashboard', 'students', 'customData', 'settings', 'firebase'] as Tab[]).map(tab => (
                         <button key={tab} onClick={() => setActiveTab(tab)}
                             className={`${activeTab === tab ? 'border-blue-700 text-blue-700' : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'}
                             whitespace-nowrap py-4 px-1 border-b-2 font-medium text-sm`}>
@@ -819,6 +821,125 @@ const SettingsTab: React.FC<{ isLocked: boolean, onToggleLock: () => void, actio
                 <SubjectManager initialSubjects={subjects} onSave={refreshData} />
             </div>
              <CustomFormManager />
+        </div>
+    );
+};
+
+const FirebaseConfigTab: React.FC = () => {
+    const [config, setConfig] = useState({
+        apiKey: '',
+        authDomain: '',
+        projectId: '',
+        storageBucket: '',
+        messagingSenderId: '',
+        appId: '',
+    });
+    const [status, setStatus] = useState<'unconfigured' | 'configured' | 'error'>('unconfigured');
+    const [isMigrating, setIsMigrating] = useState(false);
+    const [migrationMessage, setMigrationMessage] = useState('');
+
+    useEffect(() => {
+        const savedConfig = localStorage.getItem('firebaseConfig');
+        if (savedConfig) {
+            try {
+                const parsedConfig = JSON.parse(savedConfig);
+                setConfig(parsedConfig);
+                setStatus('configured');
+            } catch {
+                setStatus('error');
+            }
+        }
+    }, []);
+
+    const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+        setConfig({ ...config, [e.target.name]: e.target.value });
+    };
+
+    const handleSaveConfig = () => {
+        if (Object.values(config).some(v => !v)) {
+            alert('Vui lòng điền đầy đủ tất cả các trường cấu hình.');
+            return;
+        }
+        localStorage.setItem('firebaseConfig', JSON.stringify(config));
+        setStatus('configured');
+        alert('Đã lưu cấu hình Firebase! Vui lòng tải lại trang để áp dụng.');
+    };
+
+    const handleClearConfig = () => {
+        if (window.confirm('Bạn có chắc muốn xóa cấu hình Firebase? Hệ thống sẽ quay lại dùng dữ liệu cục bộ.')) {
+            localStorage.removeItem('firebaseConfig');
+            setConfig({ apiKey: '', authDomain: '', projectId: '', storageBucket: '', messagingSenderId: '', appId: '' });
+            setStatus('unconfigured');
+            alert('Đã xóa cấu hình. Vui lòng tải lại trang.');
+        }
+    };
+    
+    const handleMigrateData = async () => {
+        if (!window.confirm('Hành động này sẽ di chuyển toàn bộ dữ liệu hiện tại (học sinh, môn học, cài đặt...) từ hệ thống tạm sang Firebase. Dữ liệu trên Firebase (nếu có) có thể bị ghi đè. Bạn có chắc chắn muốn tiếp tục?')) {
+            return;
+        }
+        setIsMigrating(true);
+        setMigrationMessage('Bắt đầu quá trình di chuyển...');
+        try {
+            await api.migrateToFirebase((message) => setMigrationMessage(message));
+            setMigrationMessage('Di chuyển dữ liệu thành công! Tất cả học sinh và cài đặt đã có trên Firebase.');
+        } catch (error: any) {
+            setMigrationMessage(`Lỗi: ${error.message}. Vui lòng kiểm tra lại cấu hình và console log.`);
+            console.error(error);
+        } finally {
+            setIsMigrating(false);
+        }
+    };
+
+    return (
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 items-start">
+            <Card title="Cấu hình Kết nối Firebase">
+                <div className="space-y-4">
+                    {status === 'configured' && (
+                        <div className="bg-green-100 border-l-4 border-green-500 text-green-700 p-4" role="alert">
+                            <p className="font-bold">Đã cấu hình</p>
+                            <p>Ứng dụng hiện đang kết nối với Firebase. Mọi thay đổi sẽ được lưu trên cloud.</p>
+                        </div>
+                    )}
+                     {status === 'unconfigured' && (
+                        <div className="bg-yellow-100 border-l-4 border-yellow-500 text-yellow-700 p-4" role="alert">
+                            <p className="font-bold">Chưa cấu hình</p>
+                            <p>Ứng dụng đang dùng dữ liệu tạm (localStorage). Dữ liệu sẽ mất nếu bạn xóa cache trình duyệt.</p>
+                        </div>
+                    )}
+                    <p className="text-sm text-gray-600">
+                        Nhập thông tin cấu hình từ dự án Firebase của bạn để kết nối với cơ sở dữ liệu thật.
+                    </p>
+                    <Input label="API Key" name="apiKey" value={config.apiKey} onChange={handleInputChange} />
+                    <Input label="Auth Domain" name="authDomain" value={config.authDomain} onChange={handleInputChange} />
+                    <Input label="Project ID" name="projectId" value={config.projectId} onChange={handleInputChange} />
+                    <Input label="Storage Bucket" name="storageBucket" value={config.storageBucket} onChange={handleInputChange} />
+                    <Input label="Messaging Sender ID" name="messagingSenderId" value={config.messagingSenderId} onChange={handleInputChange} />
+                    <Input label="App ID" name="appId" value={config.appId} onChange={handleInputChange} />
+                    <div className="flex flex-col sm:flex-row gap-2 pt-2">
+                        <Button onClick={handleSaveConfig} className="flex-1">Lưu Cấu hình</Button>
+                        <Button onClick={handleClearConfig} variant="danger" className="flex-1">Xóa Cấu hình</Button>
+                    </div>
+                </div>
+            </Card>
+
+             <Card title="Di chuyển Dữ liệu (Migration)">
+                <div className="space-y-4">
+                     <p className="text-sm text-gray-600">
+                        Sử dụng chức năng này để chuyển dữ liệu từ hệ thống tạm (localStorage) sang Firebase.
+                        <br />
+                        <strong>Lưu ý:</strong> Chỉ thực hiện khi bạn đã cấu hình Firebase và muốn bắt đầu sử dụng chính thức.
+                    </p>
+                    <Button onClick={handleMigrateData} disabled={status !== 'configured' || isMigrating} className="w-full flex justify-center">
+                        {isMigrating ? <Spinner size="sm" /> : 'Di chuyển dữ liệu sang Firebase'}
+                    </Button>
+                    {migrationMessage && (
+                        <div className={`p-3 rounded-md text-sm ${migrationMessage.startsWith('Lỗi') ? 'bg-red-100 text-red-800' : 'bg-blue-100 text-blue-800'}`}>
+                            {migrationMessage}
+                        </div>
+                    )}
+                </div>
+            </Card>
         </div>
     );
 };
