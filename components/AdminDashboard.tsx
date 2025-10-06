@@ -301,7 +301,10 @@ const AnalyticsTab: React.FC<{ students: Student[], subjects: { review: Subject[
             });
             return acc;
         }, {} as Record<string, number>);
-        return Object.entries(stats).map(([label, value]) => ({ label, value })).sort((a,b) => b.value - a.value);
+        // FIX: Reordered map and sort and used tuple destructuring to resolve type errors in the sort comparison.
+        return Object.entries(stats)
+            .sort(([, aValue], [, bValue]) => bValue - aValue)
+            .map(([label, value]) => ({ label, value }));
     }, [students, reviewSubjectsMap]);
 
     // Fix: Correctly type the `reduce` accumulator to resolve type errors.
@@ -313,7 +316,10 @@ const AnalyticsTab: React.FC<{ students: Student[], subjects: { review: Subject[
             });
             return acc;
         }, {} as Record<string, number>);
-        return Object.entries(stats).map(([label, value]) => ({ label, value })).sort((a,b) => b.value - a.value);
+        // FIX: Reordered map and sort and used tuple destructuring to resolve type errors in the sort comparison.
+        return Object.entries(stats)
+            .sort(([, aValue], [, bValue]) => bValue - aValue)
+            .map(([label, value]) => ({ label, value }));
     }, [students, examSubjectsMap]);
 
     // --- Time-based Stats ---
@@ -342,7 +348,10 @@ const AnalyticsTab: React.FC<{ students: Student[], subjects: { review: Subject[
             const [dayA, monthA] = dateA.split('/');
             const [dayB, monthB] = dateB.split('/');
             // Assuming current year for sorting, this might need adjustment for multi-year data
-            return new Date(`2024-${monthA}-${dayA}`).getTime() - new Date(`2024-${monthB}-${dayB}`).getTime();
+            // FIX: Explicitly create Date objects with numeric parts to satisfy TypeScript's type checker for arithmetic operations.
+            const dateObjA = new Date(2024, Number(monthA) - 1, Number(dayA));
+            const dateObjB = new Date(2024, Number(monthB) - 1, Number(dayB));
+            return dateObjA.getTime() - dateObjB.getTime();
         }).map(([label, value]) => ({ label, value }));
     }, [students, startDate, endDate]);
 
