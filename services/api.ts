@@ -14,6 +14,7 @@ const firebaseConfig = {
 };
 
 const DB_KEY = 'registration_system_db';
+const MIGRATION_KEY = 'firebase_migrated';
 
 // --- DATABASE INITIALIZATION ---
 // This structure holds the initial state of the database if nothing is found in localStorage.
@@ -67,24 +68,36 @@ const initialDB = {
 
 // --- DUAL-MODE API SETUP ---
 let isFirebaseEnabled = false;
+let useFirebase = false;
 
-try {
-  const success = initializeFirebase(firebaseConfig);
-  if (success) {
-    isFirebaseEnabled = true;
-    console.log("%cFirebase Mode: ENABLED", "color: green; font-weight: bold;");
-  } else {
-    console.error("Firebase SDK not found on window. Firebase mode disabled. Falling back to localStorage.");
+const initializeApi = () => {
+  try {
+    const success = initializeFirebase(firebaseConfig);
+    if (success) {
+      isFirebaseEnabled = true;
+    } else {
+      console.error("Firebase SDK not found on window. Firebase mode disabled.");
+      isFirebaseEnabled = false;
+    }
+  } catch (e) {
+    console.error("Could not initialize Firebase from config", e);
     isFirebaseEnabled = false;
   }
-} catch (e) {
-  console.error("Could not initialize Firebase from config", e);
-  isFirebaseEnabled = false;
-}
 
-if (!isFirebaseEnabled) {
-  console.log("%cFirebase Mode: DISABLED (fallback to localStorage)", "color: orange; font-weight: bold;");
-}
+  const hasMigrated = localStorage.getItem(MIGRATION_KEY) === 'true';
+  useFirebase = isFirebaseEnabled && hasMigrated;
+
+  if (useFirebase) {
+    console.log("%cFirebase Mode: ACTIVE (migrated)", "color: green; font-weight: bold;");
+  } else if (isFirebaseEnabled) {
+    console.log("%cFirebase Mode: STANDBY (awaiting first admin login for migration)", "color: blue; font-weight: bold;");
+  } else {
+    console.log("%cFirebase Mode: DISABLED (fallback to localStorage)", "color: orange; font-weight: bold;");
+  }
+};
+
+initializeApi();
+
 
 // --- LOCAL DB (MOCK) HELPER FUNCTIONS ---
 let mockDB: typeof initialDB;
@@ -99,21 +112,31 @@ const _saveDB = () => {
 };
 
 const _loadDB = () => {
-  const savedDB = localStorage.getItem(DB_KEY);
-  if (savedDB) {
+  try {
+    const savedDB = localStorage.getItem(DB_KEY);
+    if (!savedDB) {
+      // If no DB exists, initialize with defaults. This is not an error.
+      throw new Error("No saved DB found, initializing from defaults.");
+    }
     const parsedDB = JSON.parse(savedDB);
-    // Restore the Map from the array.
+    // Validate the structure to prevent crashes.
+    if (!parsedDB || !Array.isArray(parsedDB.userPasswords)) {
+       throw new Error("Corrupted data found in localStorage.");
+    }
     mockDB = {
       ...parsedDB,
       userPasswords: new Map(parsedDB.userPasswords),
     };
-  } else {
-    // If no saved DB, use the initial one and save it.
-    mockDB = JSON.parse(JSON.stringify(initialDB)); // Deep copy to avoid mutation issues
+  } catch (error) {
+    console.warn("Could not load database from localStorage. Resetting to default.", error);
+    // If loading fails for any reason, reset to a known good state.
+    localStorage.removeItem(DB_KEY);
+    mockDB = JSON.parse(JSON.stringify(initialDB)); // Deep copy
     mockDB.userPasswords = new Map(initialDB.userPasswords);
     _saveDB();
   }
 };
+
 
 // Load the local database when the module is first imported.
 _loadDB();
@@ -128,22 +151,39 @@ export const api = {
   },
 
   login: async (ma_hocsinh: string, password: string): Promise<User> => {
-    if (isFirebaseEnabled) {
+    if (useFirebase) {
         return firebaseService.login(ma_hocsinh, password);
     }
-    // Fallback to local
+    
+    // Fallback to local with migration trigger
     await delay(500);
     const user = mockDB.users.find(u => u.ma_hocsinh === ma_hocsinh);
     const expectedPasswordHash = user ? mockDB.userPasswords.get(user.id) : undefined;
     
     if (user && expectedPasswordHash === `_hashed_${password}`) {
+      // MIGRATION TRIGGER: If it's the admin, Firebase is available, and we haven't migrated yet.
+      if (user.role === Role.Admin && isFirebaseEnabled && !useFirebase) {
+        // Use an immediately-invoked async function to show alerts and perform migration without blocking the return.
+        (async () => {
+          try {
+            alert("Đăng nhập Admin lần đầu thành công. Bắt đầu quá trình thiết lập và di chuyển dữ liệu lên Firebase. Vui lòng không đóng trang web.");
+            await firebaseService.migrateData(mockDB, (message) => console.log(`Migration: ${message}`));
+            localStorage.setItem(MIGRATION_KEY, 'true');
+            alert("Thiết lập Firebase hoàn tất! Ứng dụng sẽ tự động tải lại để chuyển sang chế độ sử dụng dữ liệu trực tuyến.");
+            window.location.reload();
+          } catch (error) {
+            console.error("Firebase migration failed!", error);
+            alert("Lỗi nghiêm trọng: Không thể di chuyển dữ liệu sang Firebase. Vui lòng kiểm tra cấu hình Firebase và Security Rules. Ứng dụng sẽ tiếp tục ở chế độ cục bộ.");
+          }
+        })();
+      }
       return { ...user };
     }
     throw new Error('Mã học sinh hoặc mật khẩu không đúng.');
   },
 
   changePassword: async (userId: number, newPassword: string): Promise<void> => {
-    if (isFirebaseEnabled) {
+    if (useFirebase) {
         return firebaseService.changePassword(userId, newPassword);
     }
      // Fallback to local
@@ -159,7 +199,7 @@ export const api = {
   },
 
   changeOwnPassword: async (userId: number, oldPassword: string, newPassword: string): Promise<void> => {
-    if (isFirebaseEnabled) {
+    if (useFirebase) {
         return firebaseService.changeOwnPassword(userId, oldPassword, newPassword);
     }
      // Fallback to local
@@ -177,7 +217,7 @@ export const api = {
   },
 
   verifyStudentForPasswordReset: async (ma_hocsinh: string, ngaysinh: string): Promise<number> => {
-     if (isFirebaseEnabled) {
+     if (useFirebase) {
         return firebaseService.verifyStudentForPasswordReset(ma_hocsinh, ngaysinh);
     }
     // Fallback to local
@@ -194,7 +234,7 @@ export const api = {
   },
 
   resetPasswordAfterVerification: async (userId: number, newPassword: string): Promise<void> => {
-     if (isFirebaseEnabled) {
+     if (useFirebase) {
         return firebaseService.resetPasswordAfterVerification(userId, newPassword);
     }
     // Fallback to local
@@ -210,7 +250,7 @@ export const api = {
   },
   
   getStudentById: async (userId: number): Promise<Student> => {
-     if (isFirebaseEnabled) {
+     if (useFirebase) {
         return firebaseService.getStudentById(userId);
     }
     // Fallback to local
@@ -223,7 +263,7 @@ export const api = {
   },
 
   updateStudentRegistration: async (userId: number, data: { reviewSubjects: number[], examSubjects: number[], customData: { [key: string]: any } }): Promise<void> => {
-    if (isFirebaseEnabled) {
+    if (useFirebase) {
         return firebaseService.updateStudentRegistration(userId, data);
     }
     // Fallback to local
@@ -246,7 +286,7 @@ export const api = {
 
   // --- Admin specific functions ---
   getStudents: async (): Promise<Student[]> => {
-    if (isFirebaseEnabled) {
+    if (useFirebase) {
         return firebaseService.getStudents();
     }
     // Fallback to local
@@ -255,7 +295,7 @@ export const api = {
   },
 
   addStudent: async (studentData: Omit<Student, 'id' | 'role'>): Promise<Student> => {
-    if (isFirebaseEnabled) {
+    if (useFirebase) {
         return firebaseService.addStudent(studentData);
     }
     // Fallback to local
@@ -276,7 +316,7 @@ export const api = {
   },
 
   addStudentsBatch: async (studentsData: any[]): Promise<void> => {
-     if (isFirebaseEnabled) {
+     if (useFirebase) {
         return firebaseService.addStudentsBatch(studentsData);
     }
     // Fallback to local
@@ -301,7 +341,7 @@ export const api = {
   },
 
   updateStudent: async (studentId: number, updates: Partial<Student>): Promise<Student> => {
-    if (isFirebaseEnabled) {
+    if (useFirebase) {
         return firebaseService.updateStudent(studentId, updates);
     }
     // Fallback to local
@@ -315,7 +355,7 @@ export const api = {
   },
 
   deleteStudentsBatch: async (studentIds: number[]): Promise<void> => {
-    if (isFirebaseEnabled) {
+    if (useFirebase) {
         return firebaseService.deleteStudentsBatch(studentIds);
     }
     // Fallback to local
@@ -329,7 +369,7 @@ export const api = {
   },
 
   deleteAllStudents: async (): Promise<void> => {
-    if (isFirebaseEnabled) {
+    if (useFirebase) {
         return firebaseService.deleteAllStudents();
     }
     // Fallback to local
@@ -347,7 +387,7 @@ export const api = {
   },
 
   getStudentPassword: async (studentId: number): Promise<string> => {
-    if (isFirebaseEnabled) {
+    if (useFirebase) {
         return firebaseService.getStudentPassword(studentId);
     }
     // Fallback to local
@@ -361,7 +401,7 @@ export const api = {
   },
 
   resetStudentPassword: async (studentId: number, newPassword?: string): Promise<void> => {
-    if (isFirebaseEnabled) {
+    if (useFirebase) {
         return firebaseService.resetStudentPassword(studentId, newPassword);
     }
     // Fallback to local
@@ -378,7 +418,7 @@ export const api = {
   },
 
   getRegistrationStatus: async (): Promise<boolean> => {
-    if (isFirebaseEnabled) {
+    if (useFirebase) {
         return firebaseService.getRegistrationStatus();
     }
     // Fallback to local
@@ -388,7 +428,7 @@ export const api = {
   },
 
   setRegistrationStatus: async (locked: boolean): Promise<boolean> => {
-    if (isFirebaseEnabled) {
+    if (useFirebase) {
         return firebaseService.setRegistrationStatus(locked);
     }
     // Fallback to local
@@ -399,7 +439,7 @@ export const api = {
   },
   
   getRegistrationDeadline: async (): Promise<string> => {
-    if (isFirebaseEnabled) {
+    if (useFirebase) {
         return firebaseService.getRegistrationDeadline();
     }
     // Fallback to local
@@ -408,7 +448,7 @@ export const api = {
   },
   
   setRegistrationDeadline: async (deadline: string): Promise<string> => {
-    if (isFirebaseEnabled) {
+    if (useFirebase) {
         return firebaseService.setRegistrationDeadline(deadline);
     }
     // Fallback to local
@@ -419,7 +459,7 @@ export const api = {
   },
 
   getRegistrationSettings: async (): Promise<{ showReviewSubjects: boolean, showExamSubjects: boolean, showCustomFields: boolean }> => {
-    if (isFirebaseEnabled) {
+    if (useFirebase) {
         return firebaseService.getRegistrationSettings();
     }
     // Fallback to local
@@ -428,7 +468,7 @@ export const api = {
   },
   
   updateRegistrationSettings: async (settings: { showReviewSubjects: boolean, showExamSubjects: boolean, showCustomFields: boolean }): Promise<void> => {
-    if (isFirebaseEnabled) {
+    if (useFirebase) {
         return firebaseService.updateRegistrationSettings(settings);
     }
     // Fallback to local
@@ -438,7 +478,7 @@ export const api = {
   },
 
   getSubjects: async(): Promise<{ review: Subject[], exam: Subject[] }> => {
-    if (isFirebaseEnabled) {
+    if (useFirebase) {
         return firebaseService.getSubjects();
     }
     // Fallback to local
@@ -450,7 +490,7 @@ export const api = {
   },
 
   updateSubjects: async(subjects: { review: Subject[], exam: Subject[] }): Promise<void> => {
-    if (isFirebaseEnabled) {
+    if (useFirebase) {
         return firebaseService.updateSubjects(subjects);
     }
     // Fallback to local
@@ -461,7 +501,7 @@ export const api = {
   },
 
   getCustomFormFields: async (): Promise<CustomField[]> => {
-    if (isFirebaseEnabled) {
+    if (useFirebase) {
         return firebaseService.getCustomFormFields();
     }
     // Fallback to local
@@ -470,7 +510,7 @@ export const api = {
   },
   
   updateCustomFormFields: async (fields: CustomField[]): Promise<void> => {
-     if (isFirebaseEnabled) {
+     if (useFirebase) {
         return firebaseService.updateCustomFormFields(fields);
     }
     // Fallback to local

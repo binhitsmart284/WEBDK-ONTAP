@@ -786,48 +786,6 @@ const RegistrationDisplayManager: React.FC = () => {
     );
 };
 
-const MigrationManager: React.FC = () => {
-    const [isMigrating, setIsMigrating] = useState(false);
-    const [migrationMessage, setMigrationMessage] = useState('');
-
-    const handleMigrateData = async () => {
-        if (!window.confirm('Hành động này sẽ di chuyển toàn bộ dữ liệu mẫu cục bộ sang Firebase. Dữ liệu trên Firebase (nếu có) có thể bị ghi đè. Bạn có chắc chắn muốn tiếp tục?')) {
-            return;
-        }
-        setIsMigrating(true);
-        setMigrationMessage('Bắt đầu quá trình di chuyển...');
-        try {
-            await api.migrateToFirebase((message) => setMigrationMessage(message));
-            setMigrationMessage('Di chuyển dữ liệu thành công! Tất cả học sinh và cài đặt đã có trên Firebase.');
-        } catch (error: any) {
-            setMigrationMessage(`Lỗi: ${error.message}. Vui lòng kiểm tra lại cấu hình và console log.`);
-            console.error(error);
-        } finally {
-            setIsMigrating(false);
-        }
-    };
-
-    return (
-        <Card title="Di chuyển Dữ liệu sang Firebase">
-            <div className="space-y-4">
-                 <p className="text-sm text-gray-600">
-                    Sử dụng chức năng này một lần để chuyển dữ liệu mẫu từ hệ thống tạm (localStorage) sang Firebase.
-                    <br />
-                    <strong>Lưu ý:</strong> Chỉ thực hiện sau khi ứng dụng đã kết nối Firebase thành công.
-                </p>
-                <Button onClick={handleMigrateData} disabled={isMigrating} className="w-full flex justify-center">
-                    {isMigrating ? <Spinner size="sm" /> : 'Bắt đầu Di chuyển Dữ liệu'}
-                </Button>
-                {migrationMessage && (
-                    <div className={`p-3 rounded-md text-sm ${migrationMessage.startsWith('Lỗi') ? 'bg-red-100 text-red-800' : 'bg-blue-100 text-blue-800'}`}>
-                        {migrationMessage}
-                    </div>
-                )}
-            </div>
-        </Card>
-    );
-};
-
 const SettingsTab: React.FC<{ isLocked: boolean, onToggleLock: () => void, actionLoading: boolean, subjects: {review: Subject[], exam: Subject[]}, onExport: () => void, refreshData: () => void }> = 
 ({ isLocked, onToggleLock, actionLoading, subjects, onExport, refreshData }) => {
     const [deadline, setDeadline] = useState('');
@@ -888,7 +846,6 @@ const SettingsTab: React.FC<{ isLocked: boolean, onToggleLock: () => void, actio
             </div>
              <div className="space-y-6">
                  <CustomFormManager />
-                 <MigrationManager />
              </div>
         </div>
     );
