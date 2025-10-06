@@ -292,27 +292,27 @@ const AnalyticsTab: React.FC<{ students: Student[], subjects: { review: Subject[
     const reviewSubjectsMap = useMemo(() => new Map(subjects.review.map(s => [s.id, s.name])), [subjects.review]);
     const examSubjectsMap = useMemo(() => new Map(subjects.exam.map(s => [s.id, s.name])), [subjects.exam]);
     
-    // Fix: Correctly type the `reduce` accumulator by typing the callback parameter `acc` to resolve type errors.
+    // Fix: Correctly type the `reduce` accumulator to resolve type errors.
     const registrationsByReviewSubject = useMemo(() => {
-        const stats = students.reduce((acc: Record<string, number>, student) => {
+        const stats = students.reduce((acc, student) => {
             (student.reviewSubjects || []).forEach(subId => {
                 const subName = reviewSubjectsMap.get(subId);
                 if (subName) acc[subName] = (acc[subName] || 0) + 1;
             });
             return acc;
-        }, {});
+        }, {} as Record<string, number>);
         return Object.entries(stats).map(([label, value]) => ({ label, value })).sort((a,b) => b.value - a.value);
     }, [students, reviewSubjectsMap]);
 
-    // Fix: Correctly type the `reduce` accumulator by typing the callback parameter `acc` to resolve type errors.
+    // Fix: Correctly type the `reduce` accumulator to resolve type errors.
      const registrationsByExamSubject = useMemo(() => {
-        const stats = students.reduce((acc: Record<string, number>, student) => {
+        const stats = students.reduce((acc, student) => {
             (student.examSubjects || []).forEach(subId => {
                 const subName = examSubjectsMap.get(subId);
                 if (subName) acc[subName] = (acc[subName] || 0) + 1;
             });
             return acc;
-        }, {});
+        }, {} as Record<string, number>);
         return Object.entries(stats).map(([label, value]) => ({ label, value })).sort((a,b) => b.value - a.value);
     }, [students, examSubjectsMap]);
 

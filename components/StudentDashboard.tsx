@@ -1,15 +1,3 @@
-<script src="https://aistudiocdn.com/react@^19.2.0"></script>
-<script src="https://aistudiocdn.com/react-dom@^19.2.0/client"></script>
-<script type="importmap">
-{
-  "imports": {
-    "react": "https://aistudiocdn.com/react@^19.2.0",
-    "react-dom/client": "https://aistudiocdn.com/react-dom@^19.2.0/client",
-    "react-dom": "https://aistudiocdn.com/react-dom@^19.2.0/",
-    "react/jsx-runtime": "https://aistudiocdn.com/react@^19.2.0/jsx-runtime"
-  }
-}
-</script>
 import React, { useState, useEffect, useCallback } from 'react';
 import { User, Student, Subject, CustomField } from '../types';
 import { api } from '../services/api';
