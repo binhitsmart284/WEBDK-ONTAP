@@ -2,6 +2,17 @@
 import { Role, Student, Subject, User, CustomField } from '../types';
 import { firebaseService, initializeFirebase } from './firebaseService';
 
+// Hardcoded Firebase Configuration
+const firebaseConfig = {
+  apiKey: "AIzaSyC7ZAoXmXEZm6jWrtaD5Ved_g_kngRkhjU",
+  authDomain: "hethonghbt.firebaseapp.com",
+  projectId: "hethonghbt",
+  storageBucket: "hethonghbt.appspot.com",
+  messagingSenderId: "470166020801",
+  appId: "1:470166020801:web:30b5f5ce7d36a2adcaea40",
+  measurementId: "G-PYM3DTJ1KS"
+};
+
 const DB_KEY = 'registration_system_db';
 
 // --- DATABASE INITIALIZATION ---
@@ -58,19 +69,13 @@ const initialDB = {
 let isFirebaseEnabled = false;
 
 try {
-  const configString = localStorage.getItem('firebaseConfig');
-  if (configString) {
-    const config = JSON.parse(configString);
-    if (config.apiKey && config.projectId) {
-      const success = initializeFirebase(config);
-      if (success) {
-        isFirebaseEnabled = true;
-        console.log("%cFirebase Mode: ENABLED", "color: green; font-weight: bold;");
-      } else {
-        console.error("Firebase SDK not found on window. Firebase mode disabled. Falling back to localStorage.");
-        isFirebaseEnabled = false;
-      }
-    }
+  const success = initializeFirebase(firebaseConfig);
+  if (success) {
+    isFirebaseEnabled = true;
+    console.log("%cFirebase Mode: ENABLED", "color: green; font-weight: bold;");
+  } else {
+    console.error("Firebase SDK not found on window. Firebase mode disabled. Falling back to localStorage.");
+    isFirebaseEnabled = false;
   }
 } catch (e) {
   console.error("Could not initialize Firebase from config", e);
