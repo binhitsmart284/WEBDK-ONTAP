@@ -1,521 +1,149 @@
-// Fix: Import necessary types to resolve 'Cannot find name' errors.
 import { Role, Student, Subject, User, CustomField } from '../types';
-import { firebaseService, initializeFirebase } from './firebaseService';
 
-// Hardcoded Firebase Configuration
-const firebaseConfig = {
-  apiKey: "AIzaSyC7ZAoXmXEZm6jWrtaD5Ved_g_kngRkhjU",
-  authDomain: "hethonghbt.firebaseapp.com",
-  projectId: "hethonghbt",
-  storageBucket: "hethonghbt.appspot.com",
-  messagingSenderId: "470166020801",
-  appId: "1:470166020801:web:30b5f5ce7d36a2adcaea40",
-  measurementId: "G-PYM3DTJ1KS"
-};
+// This will act as a client for our Netlify Function backend.
 
-const DB_KEY = 'registration_system_db';
-const MIGRATION_KEY = 'firebase_migrated';
+let isSeeding = false;
+let isSeeded = false;
 
-// --- DATABASE INITIALIZATION ---
-// This structure holds the initial state of the database if nothing is found in localStorage.
-const initialDB = {
-  isRegistrationLocked: false,
-  registrationDeadline: new Date(Date.now() + 10 * 24 * 60 * 60 * 1000).toISOString(), // Default: 10 days from now
-  registrationSettings: {
-    showReviewSubjects: true,
-    showExamSubjects: true,
-    showCustomFields: true,
-  },
-  users: [
-    { id: 1, ma_hocsinh: 'admin', hoten: 'Admin', ngaysinh: '1990-01-01', lop: 'N/A', role: Role.Admin, mustChangePassword: false, reviewSubjects: [], examSubjects: [] },
-    { id: 2, ma_hocsinh: 'HS2025001', hoten: 'Nguyen Van A', ngaysinh: '2006-05-12', lop: '12A1', role: Role.Student, mustChangePassword: true, reviewSubjects: [4, 5], examSubjects: [7, 8], registrationDate: '2024-05-20T10:00:00Z', customData: { phone: '0987654321', address: '123 Đường ABC, Huế' } },
-    { id: 3, ma_hocsinh: 'HS2025002', hoten: 'Tran Thi B', ngaysinh: '2006-11-02', lop: '12A3', role: Role.Student, mustChangePassword: false, reviewSubjects: [1,3], examSubjects: [6,8], registrationDate: '2024-05-21T14:30:00Z' },
-    { id: 4, ma_hocsinh: 'HS2025003', hoten: 'Le Van C', ngaysinh: '2006-01-20', lop: '12A1', role: Role.Student, mustChangePassword: false, reviewSubjects: [2,4], examSubjects: [5,9], registrationDate: '2024-05-21T15:00:00Z' },
-    { id: 5, ma_hocsinh: 'HS2025004', hoten: 'Pham Thi D', ngaysinh: '2006-03-15', lop: '12A2', role: Role.Student, mustChangePassword: true, reviewSubjects: [], examSubjects: [] },
-    { id: 6, ma_hocsinh: 'HS2025005', hoten: 'Hoang Van E', ngaysinh: '2006-07-30', lop: '12A2', role: Role.Student, mustChangePassword: false, reviewSubjects: [1,5], examSubjects: [7,9], registrationDate: '2024-05-22T09:00:00Z' },
-    { id: 7, ma_hocsinh: 'HS2025006', hoten: 'Do Thi F', ngaysinh: '2006-09-05', lop: '12A3', role: Role.Student, mustChangePassword: false, reviewSubjects: [4,6], examSubjects: [8,9], registrationDate: new Date().toISOString() },
-    { id: 8, ma_hocsinh: 'HS2025007', hoten: 'Vu Van G', ngaysinh: '2006-02-18', lop: '12A1', role: Role.Student, mustChangePassword: false, reviewSubjects: [2,3], examSubjects: [4,7], registrationDate: new Date(Date.now() - 2 * 24 * 60 * 60 * 1000).toISOString() },
-    { id: 9, ma_hocsinh: 'HS2025008', hoten: 'Bui Thi H', ngaysinh: '2006-04-22', lop: '12A4', role: Role.Student, mustChangePassword: true, reviewSubjects: [], examSubjects: [] },
-     { id: 10, ma_hocsinh: 'HS2025009', hoten: 'Dang Van I', ngaysinh: '2006-08-11', lop: '12A4', role: Role.Student, mustChangePassword: false, reviewSubjects: [1,6], examSubjects: [5,8], registrationDate: new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString() },
-  ] as Student[],
-  userPasswords: new Map<number, string>([
-    [1, '_hashed_adminpassword'],
-    [2, '_hashed_HS2025001'],
-    [3, '_hashed_newpassword123'],
-    [4, '_hashed_12345678'],
-    [5, '_hashed_HS2025004'],
-    [6, '_hashed_anotherpass'],
-    [7, '_hashed_dothifpass'],
-    [8, '_hashed_vuvangpass'],
-    [9, '_hashed_HS2025008'],
-    [10, '_hashed_dangvanipass'],
-  ]),
-  reviewSubjects: [
-    { id: 1, name: 'Toán' }, { id: 2, name: 'Ngữ văn' }, { id: 3, name: 'Tiếng Anh' }, { id: 4, name: 'Vật lý' },
-    { id: 5, name: 'Hóa học' }, { id: 6, name: 'Sinh học' }, { id: 7, name: 'Lịch sử' }, { id: 8, name: 'Địa lý' },
-    { id: 9, name: 'GDCD' },
-  ] as Subject[],
-  examSubjects: [
-    { id: 4, name: 'Vật lý' }, { id: 5, name: 'Hóa học' }, { id: 6, name: 'Sinh học' },
-    { id: 7, 'name': 'Lịch sử' }, { id: 8, name: 'Địa lý' }, { id: 9, name: 'GDCD' },
-  ] as Subject[],
-  customFormFields: [
-    { id: 'phone', label: 'SĐT Phụ huynh', type: 'text', required: true },
-    { id: 'address', label: 'Địa chỉ nhà', type: 'text', required: false },
-  ] as CustomField[],
-  nextUserId: 11,
-};
-
-// --- DUAL-MODE API SETUP ---
-let isFirebaseEnabled = false;
-let useFirebase = false;
-
-const initializeApi = () => {
-  try {
-    const success = initializeFirebase(firebaseConfig);
-    if (success) {
-      isFirebaseEnabled = true;
-    } else {
-      console.error("Firebase SDK not found on window. Firebase mode disabled.");
-      isFirebaseEnabled = false;
+async function callApi(action: string, payload?: any) {
+  // One-time seeding mechanism.
+  // The first time any API call is made, it will ensure the DB is seeded.
+  if (!isSeeded && !isSeeding) {
+    isSeeding = true;
+    try {
+      // The 'seed' action on the backend is idempotent. It will only run if the DB is empty.
+      await fetch('/.netlify/functions/api', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'seed' }),
+      });
+      isSeeded = true;
+    } catch (e) {
+      console.error("Database seeding failed!", e);
+      // Allow the app to continue, the next API call will retry.
+    } finally {
+      isSeeding = false;
     }
-  } catch (e) {
-    console.error("Could not initialize Firebase from config", e);
-    isFirebaseEnabled = false;
+  } else if (isSeeding) {
+    // If a seed is in progress, wait for it to finish.
+    await new Promise(resolve => setTimeout(resolve, 500));
   }
 
-  const hasMigrated = localStorage.getItem(MIGRATION_KEY) === 'true';
-  useFirebase = isFirebaseEnabled && hasMigrated;
 
-  if (useFirebase) {
-    console.log("%cFirebase Mode: ACTIVE (migrated)", "color: green; font-weight: bold;");
-  } else if (isFirebaseEnabled) {
-    console.log("%cFirebase Mode: STANDBY (awaiting first admin login for migration)", "color: blue; font-weight: bold;");
-  } else {
-    console.log("%cFirebase Mode: DISABLED (fallback to localStorage)", "color: orange; font-weight: bold;");
+  const response = await fetch('/.netlify/functions/api', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ action, payload }),
+  });
+
+  const result = await response.json();
+
+  if (!response.ok) {
+    throw new Error(result.error || 'Đã có lỗi xảy ra từ máy chủ.');
   }
-};
 
-initializeApi();
+  return result.data;
+}
 
-
-// --- LOCAL DB (MOCK) HELPER FUNCTIONS ---
-let mockDB: typeof initialDB;
-
-const _saveDB = () => {
-  // JSON cannot serialize Maps directly, so we convert it to an array of [key, value] pairs.
-  const dbToSave = {
-    ...mockDB,
-    userPasswords: Array.from(mockDB.userPasswords.entries()),
-  };
-  localStorage.setItem(DB_KEY, JSON.stringify(dbToSave));
-};
-
-const _loadDB = () => {
-  try {
-    const savedDB = localStorage.getItem(DB_KEY);
-    if (!savedDB) {
-      // If no DB exists, initialize with defaults. This is not an error.
-      throw new Error("No saved DB found, initializing from defaults.");
-    }
-    const parsedDB = JSON.parse(savedDB);
-    // Validate the structure to prevent crashes.
-    if (!parsedDB || !Array.isArray(parsedDB.userPasswords)) {
-       throw new Error("Corrupted data found in localStorage.");
-    }
-    mockDB = {
-      ...parsedDB,
-      userPasswords: new Map(parsedDB.userPasswords),
-    };
-  } catch (error) {
-    console.warn("Could not load database from localStorage. Resetting to default.", error);
-    // If loading fails for any reason, reset to a known good state.
-    localStorage.removeItem(DB_KEY);
-    mockDB = JSON.parse(JSON.stringify(initialDB)); // Deep copy
-    mockDB.userPasswords = new Map(initialDB.userPasswords);
-    _saveDB();
-  }
-};
-
-
-// Load the local database when the module is first imported.
-_loadDB();
-
-const delay = (ms: number) => new Promise(res => setTimeout(res, ms));
-
-// --- UNIFIED API OBJECT ---
 export const api = {
-  migrateToFirebase: async (progressCallback: (message: string) => void) => {
-    if (!isFirebaseEnabled) throw new Error("Firebase chưa được cấu hình.");
-    await firebaseService.migrateData(mockDB, progressCallback);
+  login: (ma_hocsinh: string, password: string): Promise<User> => {
+    return callApi('login', { ma_hocsinh, password });
   },
 
-  login: async (ma_hocsinh: string, password: string): Promise<User> => {
-    if (useFirebase) {
-        return firebaseService.login(ma_hocsinh, password);
-    }
-    
-    // Fallback to local with migration trigger
-    await delay(500);
-    const user = mockDB.users.find(u => u.ma_hocsinh === ma_hocsinh);
-    const expectedPasswordHash = user ? mockDB.userPasswords.get(user.id) : undefined;
-    
-    if (user && expectedPasswordHash === `_hashed_${password}`) {
-      // MIGRATION TRIGGER: If it's the admin, Firebase is available, and we haven't migrated yet.
-      if (user.role === Role.Admin && isFirebaseEnabled && !useFirebase) {
-        // Use an immediately-invoked async function to show alerts and perform migration without blocking the return.
-        (async () => {
-          try {
-            alert("Đăng nhập Admin lần đầu thành công. Bắt đầu quá trình thiết lập và di chuyển dữ liệu lên Firebase. Vui lòng không đóng trang web.");
-            await firebaseService.migrateData(mockDB, (message) => console.log(`Migration: ${message}`));
-            localStorage.setItem(MIGRATION_KEY, 'true');
-            alert("Thiết lập Firebase hoàn tất! Ứng dụng sẽ tự động tải lại để chuyển sang chế độ sử dụng dữ liệu trực tuyến.");
-            window.location.reload();
-          } catch (error) {
-            console.error("Firebase migration failed!", error);
-            alert("Lỗi nghiêm trọng: Không thể di chuyển dữ liệu sang Firebase. Vui lòng kiểm tra cấu hình Firebase và Security Rules. Ứng dụng sẽ tiếp tục ở chế độ cục bộ.");
-          }
-        })();
-      }
-      return { ...user };
-    }
-    throw new Error('Mã học sinh hoặc mật khẩu không đúng.');
+  changePassword: (userId: number, newPassword: string): Promise<void> => {
+    return callApi('changePassword', { userId, newPassword });
   },
 
-  changePassword: async (userId: number, newPassword: string): Promise<void> => {
-    if (useFirebase) {
-        return firebaseService.changePassword(userId, newPassword);
-    }
-     // Fallback to local
-    await delay(500);
-    const userIndex = mockDB.users.findIndex(u => u.id === userId);
-    if (userIndex !== -1) {
-      mockDB.users[userIndex].mustChangePassword = false;
-      mockDB.userPasswords.set(userId, `_hashed_${newPassword}`);
-      _saveDB();
-      return;
-    }
-    throw new Error('Không tìm thấy người dùng.');
-  },
-
-  changeOwnPassword: async (userId: number, oldPassword: string, newPassword: string): Promise<void> => {
-    if (useFirebase) {
-        return firebaseService.changeOwnPassword(userId, oldPassword, newPassword);
-    }
-     // Fallback to local
-    await delay(500);
-    const userIndex = mockDB.users.findIndex(u => u.id === userId);
-    const currentPasswordHash = mockDB.userPasswords.get(userId);
-
-    if (userIndex !== -1 && currentPasswordHash === `_hashed_${oldPassword}`) {
-      mockDB.users[userIndex].mustChangePassword = false;
-      mockDB.userPasswords.set(userId, `_hashed_${newPassword}`);
-      _saveDB();
-      return;
-    }
-    throw new Error('Mật khẩu hiện tại không đúng.');
-  },
-
-  verifyStudentForPasswordReset: async (ma_hocsinh: string, ngaysinh: string): Promise<number> => {
-     if (useFirebase) {
-        return firebaseService.verifyStudentForPasswordReset(ma_hocsinh, ngaysinh);
-    }
-    // Fallback to local
-    await delay(500);
-    const student = mockDB.users.find(u =>
-      u.role === Role.Student &&
-      u.ma_hocsinh === ma_hocsinh &&
-      u.ngaysinh === ngaysinh
-    );
-    if (student) {
-      return student.id;
-    }
-    throw new Error('Thông tin không chính xác. Vui lòng kiểm tra lại Mã học sinh và Ngày sinh.');
-  },
-
-  resetPasswordAfterVerification: async (userId: number, newPassword: string): Promise<void> => {
-     if (useFirebase) {
-        return firebaseService.resetPasswordAfterVerification(userId, newPassword);
-    }
-    // Fallback to local
-    await delay(500);
-    const userIndex = mockDB.users.findIndex(u => u.id === userId);
-    if (userIndex !== -1) {
-      mockDB.users[userIndex].mustChangePassword = false;
-      mockDB.userPasswords.set(userId, `_hashed_${newPassword}`);
-      _saveDB();
-      return;
-    }
-    throw new Error('Đã xảy ra lỗi không mong muốn.');
+  changeOwnPassword: (userId: number, oldPassword: string, newPassword: string): Promise<void> => {
+    return callApi('changeOwnPassword', { userId, oldPassword, newPassword });
   },
   
-  getStudentById: async (userId: number): Promise<Student> => {
-     if (useFirebase) {
-        return firebaseService.getStudentById(userId);
-    }
-    // Fallback to local
-    await delay(300);
-    const student = mockDB.users.find(u => u.id === userId && u.role === Role.Student);
-    if (student) {
-        return { ...student };
-    }
-    throw new Error('Không tìm thấy học sinh.');
+  verifyStudentForPasswordReset: (ma_hocsinh: string, ngaysinh: string): Promise<number> => {
+    return callApi('verifyStudentForPasswordReset', { ma_hocsinh, ngaysinh });
   },
 
-  updateStudentRegistration: async (userId: number, data: { reviewSubjects: number[], examSubjects: number[], customData: { [key: string]: any } }): Promise<void> => {
-    if (useFirebase) {
-        return firebaseService.updateStudentRegistration(userId, data);
-    }
-    // Fallback to local
-    await delay(600);
-    const isPastDeadline = new Date() > new Date(mockDB.registrationDeadline);
-    if (mockDB.isRegistrationLocked || isPastDeadline) {
-        throw new Error('Hệ thống đã khoá đăng ký. Không thể lưu thay đổi.');
-    }
-    const userIndex = mockDB.users.findIndex(u => u.id === userId);
-    if (userIndex !== -1) {
-      mockDB.users[userIndex].reviewSubjects = data.reviewSubjects;
-      mockDB.users[userIndex].examSubjects = data.examSubjects;
-      mockDB.users[userIndex].customData = data.customData;
-      mockDB.users[userIndex].registrationDate = new Date().toISOString();
-      _saveDB();
-      return;
-    }
-    throw new Error('Không tìm thấy người dùng.');
+  resetPasswordAfterVerification: (userId: number, newPassword: string): Promise<void> => {
+    return callApi('resetPasswordAfterVerification', { userId, newPassword });
   },
 
-  // --- Admin specific functions ---
-  getStudents: async (): Promise<Student[]> => {
-    if (useFirebase) {
-        return firebaseService.getStudents();
-    }
-    // Fallback to local
-    await delay(300);
-    return JSON.parse(JSON.stringify(mockDB.users.filter(u => u.role === Role.Student) as Student[]));
+  getStudentById: (userId: number): Promise<Student> => {
+    return callApi('getStudentById', { userId });
   },
 
-  addStudent: async (studentData: Omit<Student, 'id' | 'role'>): Promise<Student> => {
-    if (useFirebase) {
-        return firebaseService.addStudent(studentData);
-    }
-    // Fallback to local
-    await delay(400);
-    const newStudent: Student = {
-        ...studentData,
-        id: mockDB.nextUserId++,
-        role: Role.Student,
-        mustChangePassword: true,
-        reviewSubjects: [],
-        examSubjects: [],
-        registrationDate: undefined,
-    };
-    mockDB.users.push(newStudent);
-    mockDB.userPasswords.set(newStudent.id, `_hashed_${studentData.cccd || studentData.ma_hocsinh}`);
-    _saveDB();
-    return newStudent;
+  updateStudentRegistration: (userId: number, data: { reviewSubjects: number[], examSubjects: number[], customData: { [key: string]: any } }): Promise<void> => {
+    return callApi('updateStudentRegistration', { userId, data });
   },
 
-  addStudentsBatch: async (studentsData: any[]): Promise<void> => {
-     if (useFirebase) {
-        return firebaseService.addStudentsBatch(studentsData);
-    }
-    // Fallback to local
-    await delay(1000);
-    studentsData.forEach(s => {
-        const newStudent: Student = {
-            id: mockDB.nextUserId++,
-            ma_hocsinh: s.ma_hocsinh,
-            hoten: s.hoten,
-            ngaysinh: s.ngaysinh,
-            lop: s.lop,
-            role: Role.Student,
-            mustChangePassword: true,
-            reviewSubjects: [],
-            examSubjects: [],
-            registrationDate: undefined,
-        };
-        mockDB.users.push(newStudent);
-        mockDB.userPasswords.set(newStudent.id, `_hashed_${s.cccd || s.ma_hocsinh}`);
-    });
-    _saveDB();
+  // Admin functions
+  getStudents: (): Promise<Student[]> => {
+    return callApi('getStudents');
   },
 
-  updateStudent: async (studentId: number, updates: Partial<Student>): Promise<Student> => {
-    if (useFirebase) {
-        return firebaseService.updateStudent(studentId, updates);
-    }
-    // Fallback to local
-      await delay(400);
-      const studentIndex = mockDB.users.findIndex(s => s.id === studentId);
-      if (studentIndex === -1) throw new Error("Student not found");
-      
-      mockDB.users[studentIndex] = { ...mockDB.users[studentIndex], ...updates };
-      _saveDB();
-      return mockDB.users[studentIndex];
+  addStudent: (studentData: Omit<Student, 'id' | 'role'>): Promise<Student> => {
+    return callApi('addStudent', { studentData });
   },
 
-  deleteStudentsBatch: async (studentIds: number[]): Promise<void> => {
-    if (useFirebase) {
-        return firebaseService.deleteStudentsBatch(studentIds);
-    }
-    // Fallback to local
-    await delay(500);
-    const idsToDelete = new Set(studentIds);
-    mockDB.users = mockDB.users.filter(user => !idsToDelete.has(user.id));
-    studentIds.forEach(id => {
-      mockDB.userPasswords.delete(id);
-    });
-    _saveDB();
+  addStudentsBatch: (studentsData: any[]): Promise<void> => {
+    return callApi('addStudentsBatch', { studentsData });
   },
 
-  deleteAllStudents: async (): Promise<void> => {
-    if (useFirebase) {
-        return firebaseService.deleteAllStudents();
-    }
-    // Fallback to local
-    await delay(500);
-    const adminUsers = mockDB.users.filter(u => u.role === Role.Admin);
-    const newPasswordMap = new Map<number, string>();
-    adminUsers.forEach(admin => {
-        const pass = mockDB.userPasswords.get(admin.id);
-        if(pass) newPasswordMap.set(admin.id, pass);
-    });
-    
-    mockDB.users = adminUsers;
-    mockDB.userPasswords = newPasswordMap;
-    _saveDB();
+  updateStudent: (studentId: number, updates: Partial<Student>): Promise<Student> => {
+    return callApi('updateStudent', { studentId, updates });
   },
 
-  getStudentPassword: async (studentId: number): Promise<string> => {
-    if (useFirebase) {
-        return firebaseService.getStudentPassword(studentId);
-    }
-    // Fallback to local
-    await delay(200);
-    const passwordHash = mockDB.userPasswords.get(studentId);
-    if (!passwordHash) throw new Error("Password not found for student.");
-    if (passwordHash.startsWith('_hashed_')) {
-      return passwordHash.substring(8);
-    }
-    return "Could not retrieve password.";
+  deleteStudentsBatch: (studentIds: number[]): Promise<void> => {
+    return callApi('deleteStudentsBatch', { studentIds });
   },
 
-  resetStudentPassword: async (studentId: number, newPassword?: string): Promise<void> => {
-    if (useFirebase) {
-        return firebaseService.resetStudentPassword(studentId, newPassword);
-    }
-    // Fallback to local
-      await delay(300);
-      const studentIndex = mockDB.users.findIndex(s => s.id === studentId);
-      if (studentIndex === -1) throw new Error("Student not found");
-
-      const student = mockDB.users[studentIndex];
-      student.mustChangePassword = !newPassword; 
-      
-      const passwordToSet = newPassword || student.ma_hocsinh;
-      mockDB.userPasswords.set(student.id, `_hashed_${passwordToSet}`);
-      _saveDB();
-  },
-
-  getRegistrationStatus: async (): Promise<boolean> => {
-    if (useFirebase) {
-        return firebaseService.getRegistrationStatus();
-    }
-    // Fallback to local
-    await delay(100);
-    const isPastDeadline = new Date() > new Date(mockDB.registrationDeadline);
-    return mockDB.isRegistrationLocked || isPastDeadline;
-  },
-
-  setRegistrationStatus: async (locked: boolean): Promise<boolean> => {
-    if (useFirebase) {
-        return firebaseService.setRegistrationStatus(locked);
-    }
-    // Fallback to local
-    await delay(400);
-    mockDB.isRegistrationLocked = locked;
-    _saveDB();
-    return mockDB.isRegistrationLocked;
+  deleteAllStudents: (): Promise<void> => {
+    return callApi('deleteAllStudents');
   },
   
-  getRegistrationDeadline: async (): Promise<string> => {
-    if (useFirebase) {
-        return firebaseService.getRegistrationDeadline();
-    }
-    // Fallback to local
-    await delay(50);
-    return mockDB.registrationDeadline;
+  getStudentPassword: (studentId: number): Promise<string> => {
+    return callApi('getStudentPassword', { studentId });
+  },
+
+  resetStudentPassword: (studentId: number, newPassword?: string): Promise<void> => {
+    return callApi('resetStudentPassword', { studentId, newPassword });
+  },
+
+  getRegistrationStatus: (): Promise<boolean> => {
+    return callApi('getRegistrationStatus');
+  },
+
+  setRegistrationStatus: (locked: boolean): Promise<boolean> => {
+    return callApi('setRegistrationStatus', { locked });
   },
   
-  setRegistrationDeadline: async (deadline: string): Promise<string> => {
-    if (useFirebase) {
-        return firebaseService.setRegistrationDeadline(deadline);
-    }
-    // Fallback to local
-    await delay(400);
-    mockDB.registrationDeadline = deadline;
-    _saveDB();
-    return mockDB.registrationDeadline;
-  },
-
-  getRegistrationSettings: async (): Promise<{ showReviewSubjects: boolean, showExamSubjects: boolean, showCustomFields: boolean }> => {
-    if (useFirebase) {
-        return firebaseService.getRegistrationSettings();
-    }
-    // Fallback to local
-    await delay(50);
-    return JSON.parse(JSON.stringify(mockDB.registrationSettings));
+  getRegistrationDeadline: (): Promise<string> => {
+    return callApi('getRegistrationDeadline');
   },
   
-  updateRegistrationSettings: async (settings: { showReviewSubjects: boolean, showExamSubjects: boolean, showCustomFields: boolean }): Promise<void> => {
-    if (useFirebase) {
-        return firebaseService.updateRegistrationSettings(settings);
-    }
-    // Fallback to local
-    await delay(400);
-    mockDB.registrationSettings = settings;
-    _saveDB();
+  setRegistrationDeadline: (deadline: string): Promise<string> => {
+    return callApi('setRegistrationDeadline', { deadline });
   },
 
-  getSubjects: async(): Promise<{ review: Subject[], exam: Subject[] }> => {
-    if (useFirebase) {
-        return firebaseService.getSubjects();
-    }
-    // Fallback to local
-    await delay(150);
-    return JSON.parse(JSON.stringify({
-        review: mockDB.reviewSubjects,
-        exam: mockDB.examSubjects
-    }));
-  },
-
-  updateSubjects: async(subjects: { review: Subject[], exam: Subject[] }): Promise<void> => {
-    if (useFirebase) {
-        return firebaseService.updateSubjects(subjects);
-    }
-    // Fallback to local
-    await delay(500);
-    mockDB.reviewSubjects = subjects.review;
-    mockDB.examSubjects = subjects.exam;
-    _saveDB();
-  },
-
-  getCustomFormFields: async (): Promise<CustomField[]> => {
-    if (useFirebase) {
-        return firebaseService.getCustomFormFields();
-    }
-    // Fallback to local
-    await delay(100);
-    return JSON.parse(JSON.stringify(mockDB.customFormFields));
+  getRegistrationSettings: (): Promise<{ showReviewSubjects: boolean, showExamSubjects: boolean, showCustomFields: boolean }> => {
+    return callApi('getRegistrationSettings');
   },
   
-  updateCustomFormFields: async (fields: CustomField[]): Promise<void> => {
-     if (useFirebase) {
-        return firebaseService.updateCustomFormFields(fields);
-    }
-    // Fallback to local
-    await delay(400);
-    mockDB.customFormFields = fields;
-    _saveDB();
+  updateRegistrationSettings: (settings: { showReviewSubjects: boolean, showExamSubjects: boolean, showCustomFields: boolean }): Promise<void> => {
+    return callApi('updateRegistrationSettings', { settings });
+  },
+
+  getSubjects: (): Promise<{ review: Subject[], exam: Subject[] }> => {
+    return callApi('getSubjects');
+  },
+
+  updateSubjects: (subjects: { review: Subject[], exam: Subject[] }): Promise<void> => {
+    return callApi('updateSubjects', { subjects });
+  },
+
+  getCustomFormFields: (): Promise<CustomField[]> => {
+    return callApi('getCustomFormFields');
+  },
+  
+  updateCustomFormFields: (fields: CustomField[]): Promise<void> => {
+    return callApi('updateCustomFormFields', { fields });
   },
 };
