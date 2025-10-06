@@ -1,9 +1,3 @@
-
-
-
-
-
-
 import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { Student, Subject, CustomField, Role } from '../types';
 import { api } from '../services/api';
@@ -104,6 +98,7 @@ const AdminDashboard: React.FC = () => {
     const [isLocked, setIsLocked] = useState(false);
     const [loading, setLoading] = useState(true);
     const [actionLoading, setActionLoading] = useState(false);
+    const [error, setError] = useState<string | null>(null);
     
     // State for modals
     const [isStudentModalOpen, setIsStudentModalOpen] = useState(false);
@@ -116,6 +111,7 @@ const AdminDashboard: React.FC = () => {
 
     const fetchData = useCallback(async () => {
         setLoading(true);
+        setError(null);
         try {
             const [studentsData, lockStatus, subjectsData] = await Promise.all([
                 api.getStudents(),
@@ -127,6 +123,7 @@ const AdminDashboard: React.FC = () => {
             setSubjects(subjectsData);
         } catch (error) {
             console.error("Failed to fetch admin data", error);
+            setError("Không thể tải dữ liệu từ máy chủ. Vui lòng kiểm tra kết nối mạng và cấu hình Firebase. Lỗi này thường xảy ra do Security Rules của Firestore chặn truy cập. Vui lòng kiểm tra và cập nhật lại Rules trong Firebase Console của bạn.");
         } finally {
             setLoading(false);
         }
@@ -238,6 +235,20 @@ const AdminDashboard: React.FC = () => {
     // --- Render logic ---
     if (loading) {
         return <div className="flex justify-center items-center h-64"><Spinner /></div>;
+    }
+
+    if (error) {
+        return (
+            <div className="p-4 sm:p-6 lg:p-8 max-w-4xl mx-auto">
+                <Card title="Lỗi" className="border-red-500 border-2">
+                    <p className="text-red-700 font-semibold">Đã xảy ra lỗi nghiêm trọng:</p>
+                    <p className="mt-2 text-gray-800">{error}</p>
+                    <p className="mt-4 text-sm text-gray-600">
+                        Hãy thử làm mới trang. Nếu vấn đề vẫn tiếp diễn, bạn có thể cần phải cập nhật Firestore Security Rules trong trang quản trị Firebase của mình.
+                    </p>
+                </Card>
+            </div>
+        );
     }
     
     const renderContent = () => {
@@ -630,7 +641,10 @@ const CustomDataTab: React.FC<{ students: Student[] }> = ({ students }) => {
     const [loading, setLoading] = useState(true);
 
     useEffect(() => {
-        api.getCustomFormFields().then(setFields).finally(() => setLoading(false));
+        api.getCustomFormFields()
+            .then(setFields)
+            .catch(err => console.error("Failed to load custom fields for tab:", err))
+            .finally(() => setLoading(false));
     }, []);
 
     const handleExportCustomData = () => {
@@ -705,6 +719,7 @@ const RegistrationDisplayManager: React.FC = () => {
     useEffect(() => {
         api.getRegistrationSettings()
             .then(setSettings)
+            .catch(err => console.error("Failed to load registration display settings:", err))
             .finally(() => setLoading(false));
     }, []);
 
@@ -819,10 +834,14 @@ const SettingsTab: React.FC<{ isLocked: boolean, onToggleLock: () => void, actio
     const [deadlineLoading, setDeadlineLoading] = useState(true);
 
     useEffect(() => {
-        api.getRegistrationDeadline().then(data => {
-            if (data) setDeadline(data.slice(0, 16));
-            setDeadlineLoading(false);
-        });
+        api.getRegistrationDeadline()
+            .then(data => {
+                if (data) setDeadline(data.slice(0, 16));
+            })
+            .catch(err => console.error("Failed to load registration deadline:", err))
+            .finally(() => {
+                setDeadlineLoading(false);
+            });
     }, []);
 
     const handleSaveDeadline = async () => {
@@ -1046,7 +1065,10 @@ const CustomFormManager: React.FC = () => {
     const [loading, setLoading] = useState(true);
 
     useEffect(() => {
-        api.getCustomFormFields().then(setFields).finally(() => setLoading(false));
+        api.getCustomFormFields()
+            .then(setFields)
+            .catch(err => console.error("Failed to load custom form fields for manager:", err))
+            .finally(() => setLoading(false));
     }, []);
 
     const handleAddField = () => {

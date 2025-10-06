@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect, useCallback } from 'react';
 import { User, Student, Subject, CustomField } from '../types';
 import { api } from '../services/api';
@@ -132,6 +131,7 @@ const StudentDashboard: React.FC<StudentDashboardProps> = ({ user }) => {
   const [loading, setLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
   const [saveMessage, setSaveMessage] = useState('');
+  const [error, setError] = useState<string | null>(null);
   
   const [customFields, setCustomFields] = useState<CustomField[]>([]);
   const [customData, setCustomData] = useState<{ [key: string]: any }>({});
@@ -144,6 +144,7 @@ const StudentDashboard: React.FC<StudentDashboardProps> = ({ user }) => {
 
   const fetchInitialData = useCallback(async () => {
     setLoading(true);
+    setError(null);
     try {
       const [student, lockedStatus, subjectsData, deadlineData, customFieldsData, registrationSettings] = await Promise.all([
         api.getStudentById(user.id),
@@ -165,6 +166,7 @@ const StudentDashboard: React.FC<StudentDashboardProps> = ({ user }) => {
       setSettings(registrationSettings);
     } catch (error) {
       console.error("Failed to fetch initial data", error);
+      setError("Không thể tải dữ liệu của bạn từ máy chủ. Lỗi này thường xảy ra do Security Rules của Firestore chặn truy cập. Vui lòng liên hệ quản trị viên hoặc kiểm tra lại cấu hình Firebase.");
     } finally {
       setLoading(false);
     }
@@ -235,6 +237,17 @@ const StudentDashboard: React.FC<StudentDashboardProps> = ({ user }) => {
     return <div className="flex justify-center items-center h-64"><Spinner /></div>;
   }
   
+  if (error) {
+    return (
+        <div className="p-4 sm:p-6 lg:p-8 max-w-4xl mx-auto">
+            <Card title="Lỗi" className="border-red-500 border-2">
+                <p className="text-red-700 font-semibold">Không thể tải phiếu đăng ký:</p>
+                <p className="mt-2 text-gray-800">{error}</p>
+            </Card>
+        </div>
+    );
+  }
+
   if (!studentData) {
     return <p className="text-center text-red-500 p-8">Không thể tải dữ liệu học sinh.</p>;
   }
