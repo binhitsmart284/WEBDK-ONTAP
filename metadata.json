@@ -1,0 +1,5 @@
+{
+  "name": "Hệ thống đăng ký ôn tập",
+  "description": "Một ứng dụng web giúp học sinh đăng ký các buổi học ôn tập và cho phép quản trị viên quản lý danh sách học sinh, các môn học và lịch học.",
+  "requestFramePermissions": []
+}
