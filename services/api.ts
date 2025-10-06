@@ -62,13 +62,19 @@ try {
   if (configString) {
     const config = JSON.parse(configString);
     if (config.apiKey && config.projectId) {
-      initializeFirebase(config);
-      isFirebaseEnabled = true;
-      console.log("%cFirebase Mode: ENABLED", "color: green; font-weight: bold;");
+      const success = initializeFirebase(config);
+      if (success) {
+        isFirebaseEnabled = true;
+        console.log("%cFirebase Mode: ENABLED", "color: green; font-weight: bold;");
+      } else {
+        console.error("Firebase SDK not found on window. Firebase mode disabled. Falling back to localStorage.");
+        isFirebaseEnabled = false;
+      }
     }
   }
 } catch (e) {
-  console.error("Could not initialize Firebase", e);
+  console.error("Could not initialize Firebase from config", e);
+  isFirebaseEnabled = false;
 }
 
 if (!isFirebaseEnabled) {

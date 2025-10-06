@@ -10,13 +10,25 @@ let auth: any;
 const SCHOOL_DOMAIN = 'school.local'; // A dummy domain for creating email addresses
 
 // --- INITIALIZATION ---
-export const initializeFirebase = (config: any) => {
-    if (!firebase?.apps?.length) {
-        firebase = (window as any).firebase;
+export const initializeFirebase = (config: any): boolean => {
+    const firebaseSDK = (window as any).firebase;
+    if (!firebaseSDK) {
+        // Firebase SDK script has not loaded
+        return false;
+    }
+
+    if (!firebaseSDK.apps.length) {
+        firebase = firebaseSDK;
         firebase.initializeApp(config);
         db = firebase.firestore();
         auth = firebase.auth();
+    } else {
+        // Already initialized, just re-assign variables
+        firebase = firebaseSDK;
+        db = firebase.firestore();
+        auth = firebase.auth();
     }
+    return true;
 };
 
 // --- HELPER FUNCTIONS ---
