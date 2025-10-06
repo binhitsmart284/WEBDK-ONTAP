@@ -1,5 +1,7 @@
 
 
+
+
 import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { Student, Subject, CustomField, Role } from '../types';
 import { api } from '../services/api';
@@ -10,6 +12,7 @@ import { Table } from './ui/Table';
 import { UsersIcon, PlusIcon, TrashIcon, KeyIcon, EyeIcon } from './icons';
 import { Modal } from './ui/Modal';
 import { Input } from './ui/Input';
+import { useAuth } from '../App';
 
 declare var XLSX: any;
 
@@ -430,6 +433,7 @@ const Pagination: React.FC<{ currentPage: number; totalPages: number; onPageChan
 
 const StudentManagementTab: React.FC<{ students: Student[], subjects: { review: Subject[], exam: Subject[] }, onAdd: () => void, onEdit: (s: Student) => void, onViewPassword: (s: Student) => void, onResetPassword: (s: Student) => void, onImportClick: () => void, refreshData: () => void }> = 
 ({ students, subjects, onAdd, onEdit, onViewPassword, onResetPassword, onImportClick, refreshData }) => {
+    const { impersonate } = useAuth();
     const [currentPage, setCurrentPage] = useState(1);
     const [searchTerm, setSearchTerm] = useState('');
     const [filterClass, setFilterClass] = useState('');
@@ -609,6 +613,7 @@ const StudentManagementTab: React.FC<{ students: Student[], subjects: { review: 
                                 <button onClick={() => onEdit(student)} className="text-blue-700 hover:text-blue-900" title="Sửa thông tin">Sửa</button>
                                 <button onClick={() => onViewPassword(student)} className="text-green-600 hover:text-green-900" title="Xem mật khẩu">Xem Pass</button>
                                 <button onClick={() => onResetPassword(student)} className="text-yellow-600 hover:text-yellow-900" title="Reset mật khẩu">Reset Pass</button>
+                                <button onClick={() => impersonate(student)} className="text-purple-600 hover:text-purple-900" title="Đăng nhập với tư cách học sinh này">Đăng nhập</button>
                             </td>
                         </tr>
                     ))}

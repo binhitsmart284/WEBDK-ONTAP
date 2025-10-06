@@ -5,9 +5,7 @@ import { Role, Student, Subject, User, CustomField } from '../types';
 // as the SDK is loaded globally from index.html.
 let firebase: any;
 let db: any;
-let auth: any;
-
-const SCHOOL_DOMAIN = 'school.local'; // A dummy domain for creating email addresses
+// Firebase Auth is no longer used for password management to ensure consistency with the app's workaround architecture.
 
 // --- INITIALIZATION ---
 export const initializeFirebase = (config: any): boolean => {
@@ -21,21 +19,15 @@ export const initializeFirebase = (config: any): boolean => {
         firebase = firebaseSDK;
         firebase.initializeApp(config);
         db = firebase.firestore();
-        auth = firebase.auth();
     } else {
         // Already initialized, just re-assign variables
         firebase = firebaseSDK;
         db = firebase.firestore();
-        auth = firebase.auth();
     }
     return true;
 };
 
 // --- HELPER FUNCTIONS ---
-const getEmailFromUser = (ma_hocsinh: string, role: Role): string => {
-    return role === Role.Admin ? `admin@${SCHOOL_DOMAIN}` : `${ma_hocsinh}@${SCHOOL_DOMAIN}`;
-};
-
 const getPasswordFromUser = (userData: any): string => {
     return userData.cccd || userData.ma_hocsinh;
 }
@@ -45,7 +37,6 @@ const getPasswordFromUser = (userData: any): string => {
 export const firebaseService = {
     // --- AUTHENTICATION ---
     login: async (ma_hocsinh: string, password: string): Promise<User> => {
-        // Find user role first to construct the correct email
         const userQuery = await db.collection('students')
                                 .where('ma_hocsinh', '==', ma_hocsinh)
                                 .limit(1).get();
@@ -55,39 +46,40 @@ export const firebaseService = {
         }
 
         const userData = userQuery.docs[0].data();
-        const email = getEmailFromUser(ma_hocsinh, userData.role);
+        const userId = userData.id;
 
-        try {
-            await auth.signInWithEmailAndPassword(email, password);
+        const passwordDoc = await db.collection('temp_passwords').doc(String(userId)).get();
+        
+        if (!passwordDoc.exists) {
+            throw new Error('Tài khoản chưa được kích hoạt hoặc bị lỗi. Vui lòng liên hệ quản trị viên.');
+        }
+
+        const expectedPassword = passwordDoc.data().password;
+
+        if (password === expectedPassword) {
             return userData as User;
-        } catch (error: any) {
-            // Map Firebase auth errors to user-friendly messages
-            if (error.code === 'auth/wrong-password' || error.code === 'auth/user-not-found') {
-                throw new Error('Mã học sinh hoặc mật khẩu không đúng.');
-            }
-            throw new Error('Đăng nhập thất bại.');
+        } else {
+            throw new Error('Mã học sinh hoặc mật khẩu không đúng.');
         }
     },
     
     changePassword: async (userId: number, newPassword: string): Promise<void> => {
-        const user = auth.currentUser;
-        if (!user) throw new Error("User not authenticated.");
-
-        await user.updatePassword(newPassword);
-        // Also update the mustChangePassword flag in Firestore
+        // This function is for the first-time password change.
+        // It now directly updates the password in the temporary collection.
+        await db.collection('temp_passwords').doc(String(userId)).set({ password: newPassword });
         await db.collection('students').doc(String(userId)).update({ mustChangePassword: false });
     },
     
     changeOwnPassword: async (userId: number, oldPassword: string, newPassword: string): Promise<void> => {
-        const user = auth.currentUser;
-        if (!user) throw new Error("User not authenticated.");
+        // Re-implement to check against the temporary password collection.
+        const passwordDoc = await db.collection('temp_passwords').doc(String(userId)).get();
         
-        // Re-authenticate user to verify their old password
-        const credential = firebase.auth.EmailAuthProvider.credential(user.email, oldPassword);
-        await user.reauthenticateWithCredential(credential);
+        if (!passwordDoc.exists || passwordDoc.data().password !== oldPassword) {
+            throw new Error('Mật khẩu hiện tại không đúng.');
+        }
 
-        // If re-authentication is successful, update the password
-        await user.updatePassword(newPassword);
+        // If old password is correct, update to the new one.
+        await db.collection('temp_passwords').doc(String(userId)).set({ password: newPassword });
         await db.collection('students').doc(String(userId)).update({ mustChangePassword: false });
     },
 
@@ -105,18 +97,11 @@ export const firebaseService = {
     },
 
     resetPasswordAfterVerification: async (userId: number, newPassword: string): Promise<void> => {
-        // This is tricky client-side. A secure implementation would use a server-side function
-        // to change the password. For this client-only app, we'll store the new password temporarily
-        // and let the user log in to change it. A better but more complex approach would be
-        // to have a "reset token" system. We will just update the firestore record password for now.
-        // NOTE: This is NOT standard Firebase Auth flow. It's a workaround for client-only.
-        // The proper way is sending a password reset email.
+        // This function is now consistent with the rest of the auth flow.
+        await db.collection('temp_passwords').doc(String(userId)).set({ password: newPassword });
         await db.collection('students').doc(String(userId)).update({
-            hashed_password: `_plaintext_${newPassword}`, // A flag for the app to handle
-            mustChangePassword: false
+            mustChangePassword: false, // The user has actively set a new password.
         });
-        // In a real scenario, you'd trigger a cloud function to update the Auth user's password.
-        throw new Error("Chức năng này yêu cầu môi trường server. Mật khẩu không được reset trong Auth.");
     },
 
     // --- DATA FETCHING ---
@@ -140,11 +125,12 @@ export const firebaseService = {
     // --- These functions get specific parts of the settings doc ---
     getRegistrationStatus: async (): Promise<boolean> => {
         const settings = await firebaseService.getSettings();
+        if (!settings.registrationDeadline) return settings.isRegistrationLocked;
         const isPastDeadline = new Date() > new Date(settings.registrationDeadline);
         return settings.isRegistrationLocked || isPastDeadline;
     },
     getRegistrationDeadline: async (): Promise<string> => (await firebaseService.getSettings()).registrationDeadline,
-    getRegistrationSettings: async () => (await firebaseService.getSettings()).registrationSettings,
+    getRegistrationSettings: async () => (await firebaseService.getSettings()).registrationSettings || { showReviewSubjects: true, showExamSubjects: true, showCustomFields: true },
     getSubjects: async () => {
         const settings = await firebaseService.getSettings();
         return { review: settings.reviewSubjects || [], exam: settings.examSubjects || [] };
@@ -165,8 +151,6 @@ export const firebaseService = {
 
     // --- ADMIN FUNCTIONS ---
     addStudent: async (studentData: Omit<Student, 'id' | 'role'>): Promise<Student> => {
-        // This is complex because it involves both Auth and Firestore.
-        // It should ideally be a Cloud Function for atomicity.
         const nextIdDoc = await db.collection('settings').doc('counters').get();
         const nextUserId = (nextIdDoc.data()?.studentId || 1000) + 1;
 
@@ -179,17 +163,12 @@ export const firebaseService = {
             examSubjects: [],
         };
         
-        const email = getEmailFromUser(newStudent.ma_hocsinh, newStudent.role);
         const password = getPasswordFromUser(studentData);
         
-        // Cannot create auth user client-side without logging them in.
-        // This highlights a limitation of client-only apps.
-        // We'll add to Firestore and assume admin handles auth separately, or we need a server.
         await db.collection('students').doc(String(nextUserId)).set(newStudent);
         await db.collection('settings').doc('counters').set({ studentId: nextUserId }, { merge: true });
         
-        // Let's also store the plain-text pass in a separate, highly-restricted collection
-        // This is NOT secure but a workaround for this project's constraints.
+        // Store the plain-text pass in the temporary collection, consistent with the app's logic.
         await db.collection('temp_passwords').doc(String(nextUserId)).set({ password });
 
         return newStudent;
@@ -198,21 +177,20 @@ export const firebaseService = {
     getStudentPassword: async (studentId: number): Promise<string> => {
         const doc = await db.collection('temp_passwords').doc(String(studentId)).get();
         if (doc.exists) return doc.data().password;
-        throw new Error("Password not found (it may have been changed).");
+        throw new Error("Không tìm thấy mật khẩu (có thể đã được thay đổi hoặc tài khoản bị lỗi).");
     },
     
-    // updateStudent, addStudentsBatch, etc. follow a similar pattern of calling Firestore APIs.
     updateStudent: async (studentId: number, updates: Partial<Student>): Promise<Student> => {
         const docRef = db.collection('students').doc(String(studentId));
         await docRef.update(updates);
-        return (await docRef.get()).data() as Student;
+        const updatedDoc = await docRef.get();
+        return updatedDoc.data() as Student;
     },
     
     addStudentsBatch: async (studentsData: any[]): Promise<void> => {
-        // In a real app, this MUST be a Cloud Function. Doing it client-side is slow,
-        // insecure, and error-prone. We provide a simplified version.
         const batch = db.batch();
-        let nextId = (await db.collection('settings').doc('counters').get()).data()?.studentId || 1000;
+        const countersDoc = await db.collection('settings').doc('counters').get();
+        let nextId = (countersDoc.data()?.studentId || 1000);
 
         for (const s of studentsData) {
             nextId++;
@@ -227,8 +205,12 @@ export const firebaseService = {
                 reviewSubjects: [],
                 examSubjects: [],
             };
-            const docRef = db.collection('students').doc(String(nextId));
-            batch.set(docRef, newStudent);
+            const studentDocRef = db.collection('students').doc(String(nextId));
+            batch.set(studentDocRef, newStudent);
+
+            const password = getPasswordFromUser(s);
+            const passwordDocRef = db.collection('temp_passwords').doc(String(nextId));
+            batch.set(passwordDocRef, { password });
         }
         
         batch.set(db.collection('settings').doc('counters'), { studentId: nextId }, { merge: true });
@@ -238,18 +220,27 @@ export const firebaseService = {
     deleteStudentsBatch: async (studentIds: number[]): Promise<void> => {
         const batch = db.batch();
         studentIds.forEach(id => {
-            const docRef = db.collection('students').doc(String(id));
-            batch.delete(docRef);
+            batch.delete(db.collection('students').doc(String(id)));
+            batch.delete(db.collection('temp_passwords').doc(String(id)));
         });
         await batch.commit();
     },
 
     deleteAllStudents: async (): Promise<void> => {
-        // EXTREMELY DANGEROUS on client-side. A real app would use a Cloud Function.
-        const snapshot = await db.collection('students').where('role', '==', Role.Student).get();
-        const batch = db.batch();
-        snapshot.docs.forEach((doc: any) => batch.delete(doc.ref));
-        await batch.commit();
+        const studentSnapshot = await db.collection('students').where('role', '==', Role.Student).get();
+        const studentBatch = db.batch();
+        studentSnapshot.docs.forEach((doc: any) => studentBatch.delete(doc.ref));
+        await studentBatch.commit();
+        
+        // This is less efficient but necessary without a backend.
+        // It assumes temp_passwords are only for students.
+        const passwordSnapshot = await db.collection('temp_passwords').get();
+        const passwordBatch = db.batch();
+        passwordSnapshot.docs.forEach((doc: any) => {
+            // A more robust check might be needed if admins also had temp passwords
+            passwordBatch.delete(doc.ref);
+        });
+        await passwordBatch.commit();
     },
     
     resetStudentPassword: async (studentId: number, newPassword?: string): Promise<void> => {
@@ -264,24 +255,24 @@ export const firebaseService = {
 
     // --- Settings Modification ---
     setRegistrationStatus: async (locked: boolean): Promise<boolean> => {
-        await db.collection('settings').doc('config').update({ isRegistrationLocked: locked });
+        await db.collection('settings').doc('config').set({ isRegistrationLocked: locked }, { merge: true });
         return locked;
     },
     setRegistrationDeadline: async (deadline: string): Promise<string> => {
-        await db.collection('settings').doc('config').update({ registrationDeadline: deadline });
+        await db.collection('settings').doc('config').set({ registrationDeadline: deadline }, { merge: true });
         return deadline;
     },
     updateRegistrationSettings: async (settings: any): Promise<void> => {
-        await db.collection('settings').doc('config').update({ registrationSettings: settings });
+        await db.collection('settings').doc('config').set({ registrationSettings: settings }, { merge: true });
     },
     updateSubjects: async (subjects: any): Promise<void> => {
-        await db.collection('settings').doc('config').update({
+        await db.collection('settings').doc('config').set({
             reviewSubjects: subjects.review,
             examSubjects: subjects.exam,
-        });
+        }, { merge: true });
     },
     updateCustomFormFields: async (fields: CustomField[]): Promise<void> => {
-        await db.collection('settings').doc('config').update({ customFormFields: fields });
+        await db.collection('settings').doc('config').set({ customFormFields: fields }, { merge: true });
     },
 
     // --- MIGRATION ---
@@ -304,16 +295,13 @@ export const firebaseService = {
         const totalUsers = localDB.users.length;
         progressCallback(`(Bước 2/3: Di chuyển ${totalUsers} người dùng)`);
         
-        // Use batch writes for performance
         const studentBatch = db.batch();
         const passwordBatch = db.batch();
 
         for (const user of localDB.users) {
-            const { hashed_password, ...studentDocData } = user; // Exclude password from main doc
+            const { hashed_password, ...studentDocData } = user;
             studentBatch.set(db.collection('students').doc(String(user.id)), studentDocData);
             
-            // This is the insecure part necessitated by client-only architecture.
-            // A real app would create Auth users via a server.
             const password = localDB.userPasswords.get(user.id)?.replace('_hashed_', '');
             if (password) {
                 passwordBatch.set(db.collection('temp_passwords').doc(String(user.id)), { password });

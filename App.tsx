@@ -11,9 +11,12 @@ import ForgotPasswordModal from './components/ForgotPasswordModal';
 
 interface AuthContextType {
   user: User | null;
+  originalUser: User | null; // For impersonation
   login: (ma_hocsinh: string, password: string) => Promise<void>;
   logout: () => void;
   changePassword: (newPassword: string) => Promise<void>;
+  impersonate: (student: User) => void;
+  stopImpersonating: () => void;
 }
 
 const AuthContext = createContext<AuthContextType | null>(null);
@@ -44,17 +47,20 @@ const Footer: React.FC = () => {
 
 const App: React.FC = () => {
   const [user, setUser] = useState<User | null>(null);
+  const [originalUser, setOriginalUser] = useState<User | null>(null);
   const [isChangeOwnPasswordModalOpen, setIsChangeOwnPasswordModalOpen] = useState(false);
   const [isForgotPasswordModalOpen, setIsForgotPasswordModalOpen] = useState(false);
 
   const authContextValue = useMemo(() => ({
     user,
+    originalUser,
     login: async (ma_hocsinh: string, password: string) => {
       const loggedInUser = await api.login(ma_hocsinh, password);
       setUser(loggedInUser);
     },
     logout: () => {
       setUser(null);
+      setOriginalUser(null);
       // In a real app, you'd also clear any tokens here.
     },
     changePassword: async (newPassword: string) => {
@@ -63,8 +69,20 @@ const App: React.FC = () => {
         // Optimistically update user state
         setUser({ ...user, mustChangePassword: false });
       }
+    },
+    impersonate: (studentToImpersonate: User) => {
+        if (user?.role === Role.Admin) {
+            setOriginalUser(user);
+            setUser(studentToImpersonate);
+        }
+    },
+    stopImpersonating: () => {
+        if (originalUser) {
+            setUser(originalUser);
+            setOriginalUser(null);
+        }
     }
-  }), [user]);
+  }), [user, originalUser]);
 
   const renderContent = () => {
     if (!authContextValue.user) {
@@ -85,6 +103,8 @@ const App: React.FC = () => {
             user={authContextValue.user} 
             onLogout={authContextValue.logout} 
             onOpenChangePassword={() => setIsChangeOwnPasswordModalOpen(true)}
+            originalUser={authContextValue.originalUser}
+            onStopImpersonating={authContextValue.stopImpersonating}
         />
         <main className="flex-grow overflow-y-auto">
           {renderContent()}
@@ -98,7 +118,7 @@ const App: React.FC = () => {
         />
         
         {/* Modal for user-initiated password change */}
-        {authContextValue.user && (
+        {authContextValue.user && !authContextValue.originalUser && ( // Only show if not impersonating
             <ChangeOwnPasswordModal
                 isOpen={isChangeOwnPasswordModalOpen}
                 onClose={() => setIsChangeOwnPasswordModalOpen(false)}
