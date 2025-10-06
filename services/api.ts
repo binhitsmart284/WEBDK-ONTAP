@@ -7,7 +7,7 @@ const firebaseConfig = {
   apiKey: "AIzaSyC7ZAoXmXEZm6jWrtaD5Ved_g_kngRkhjU",
   authDomain: "hethonghbt.firebaseapp.com",
   projectId: "hethonghbt",
-  storageBucket: "hethonghbt.firebasestorage.app",
+  storageBucket: "hethonghbt.appspot.com",
   messagingSenderId: "470166020801",
   appId: "1:470166020801:web:30b5f5ce7d36a2adcaea40",
   measurementId: "G-PYM3DTJ1KS"

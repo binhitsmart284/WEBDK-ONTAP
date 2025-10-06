@@ -950,6 +950,7 @@ const SubjectManager: React.FC<{ initialSubjects: { review: Subject[], exam: Sub
     const [examSubjects, setExamSubjects] = useState<Subject[]>(initialSubjects.exam);
     const [newReviewSub, setNewReviewSub] = useState('');
     const [newExamSub, setNewExamSub] = useState('');
+    const [isSaving, setIsSaving] = useState(false);
 
     const handleAddSubject = (type: 'review' | 'exam') => {
         const name = type === 'review' ? newReviewSub.trim() : newExamSub.trim();
@@ -964,9 +965,17 @@ const SubjectManager: React.FC<{ initialSubjects: { review: Subject[], exam: Sub
     };
 
     const handleSaveSubjects = async () => {
-        await api.updateSubjects({ review: reviewSubjects, exam: examSubjects });
-        onSave();
-        alert('Đã lưu thay đổi môn học!');
+        setIsSaving(true);
+        try {
+            await api.updateSubjects({ review: reviewSubjects, exam: examSubjects });
+            onSave();
+            alert('Đã lưu thay đổi môn học!');
+        } catch (error) {
+            console.error("Failed to save subjects", error);
+            alert("Lỗi: Không thể lưu thay đổi môn học. Vui lòng kiểm tra lại kết nối và thử lại.");
+        } finally {
+            setIsSaving(false);
+        }
     };
     
     return (
@@ -990,7 +999,9 @@ const SubjectManager: React.FC<{ initialSubjects: { review: Subject[], exam: Sub
                     </div>
                     <div className="flex mt-2 space-x-2"><Input value={newExamSub} onChange={e => setNewExamSub(e.target.value)} placeholder="Tên môn học mới" /><Button onClick={() => handleAddSubject('exam')}><PlusIcon /></Button></div>
                 </div>
-                <Button onClick={handleSaveSubjects} className="w-full">Lưu thay đổi Môn học</Button>
+                <Button onClick={handleSaveSubjects} disabled={isSaving} className="w-full flex justify-center">
+                    {isSaving ? <Spinner size="sm"/> : 'Lưu thay đổi Môn học'}
+                </Button>
             </div>
         </Card>
     );
@@ -1063,6 +1074,7 @@ const CustomFormManager: React.FC = () => {
     const [fields, setFields] = useState<CustomField[]>([]);
     const [newField, setNewField] = useState({ label: '', type: 'text' as CustomField['type'], required: false });
     const [loading, setLoading] = useState(true);
+    const [isSaving, setIsSaving] = useState(false);
 
     useEffect(() => {
         api.getCustomFormFields()
@@ -1083,8 +1095,16 @@ const CustomFormManager: React.FC = () => {
     };
     
     const handleSave = async () => {
-        await api.updateCustomFormFields(fields);
-        alert('Đã lưu cấu hình form!');
+        setIsSaving(true);
+        try {
+            await api.updateCustomFormFields(fields);
+            alert('Đã lưu cấu hình form!');
+        } catch (error) {
+            console.error("Failed to save custom form fields", error);
+            alert("Lỗi: Không thể lưu cấu hình form. Vui lòng kiểm tra lại kết nối và thử lại.");
+        } finally {
+            setIsSaving(false);
+        }
     };
 
     if (loading) return <Card title="Quản lý Thông tin Tùy chỉnh"><Spinner /></Card>;
@@ -1118,7 +1138,9 @@ const CustomFormManager: React.FC = () => {
                     </div>
                     <Button onClick={handleAddField} variant="secondary" className="w-full">Thêm vào danh sách</Button>
                 </div>
-                <Button onClick={handleSave} className="w-full">Lưu Cấu hình Form</Button>
+                <Button onClick={handleSave} disabled={isSaving} className="w-full flex justify-center">
+                    {isSaving ? <Spinner size="sm"/> : 'Lưu Cấu hình Form'}
+                </Button>
             </div>
         </Card>
     );
